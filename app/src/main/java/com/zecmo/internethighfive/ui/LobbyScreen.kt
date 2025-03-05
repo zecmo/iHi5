@@ -42,7 +42,7 @@ fun LobbyScreen(
             TopAppBar(
                 title = { 
                     Text(
-                        text = "Internet Hi-5",
+                        text = "internet Hi-5",
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
                     )
@@ -227,7 +227,7 @@ private fun FriendCard(
                         MaterialTheme.colorScheme.secondary
                         else MaterialTheme.colorScheme.primary
                 ),
-                enabled = !user.hasActiveHighFive
+                enabled = true
             ) {
                 Text(if (user.hasActiveHighFive) "Hand Raised!" else "High Five!")
             }

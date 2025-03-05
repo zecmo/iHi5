@@ -5,9 +5,9 @@ import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.FirebaseDatabase
 
-class InternetHighFiveApp : Application() {
+class iHi5App : Application() {
     companion object {
-        private const val TAG = "InternetHighFiveApp"
+        private const val TAG = "iHi5App"
     }
 
     override fun onCreate() {

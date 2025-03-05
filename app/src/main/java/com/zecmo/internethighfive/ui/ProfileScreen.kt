@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -32,7 +33,13 @@ fun ProfileScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Profile") },
+                title = { 
+                    Text(
+                        text = "You",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -115,7 +122,7 @@ fun ProfileScreen(
 
             // Support section
             Text(
-                text = "Support",
+                text = "Support Me",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 24.dp)
             )
@@ -140,21 +147,50 @@ fun ProfileScreen(
         if (showLogoutConfirmation) {
             AlertDialog(
                 onDismissRequest = { showLogoutConfirmation = false },
-                title = { Text("Confirm Logout") },
-                text = { Text("Are you sure you want to logout?") },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showLogoutConfirmation = false
-                            onLogout()
-                        }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp, start = 16.dp, end = 16.dp)
                     ) {
-                        Text("Logout")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    showLogoutConfirmation = false
+                                    onLogout()
+                                }
+                            ) {
+                                Text("Logout")
+                            }
+                            TextButton(
+                                onClick = { showLogoutConfirmation = false }
+                            ) {
+                                Text("Cancel")
+                            }
+                        }
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { showLogoutConfirmation = false }) {
-                        Text("Cancel")
+                title = {
+                    Text(
+                        "Logout?",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Are you sure you want to logout?",
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             )
