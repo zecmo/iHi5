@@ -493,6 +493,65 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun onEnterHighFiveScreen() {
+        viewModelScope.launch {
+            try {
+                // Get current user ID from userPreferences instead of _currentUser
+                val currentUser = userPreferences.userFlow.first()
+                val currentUserId = currentUser?.id ?: run {
+                    Log.e(TAG, "No current user ID available for hand raised status update")
+                    return@launch
+                }
+                
+                Log.d(TAG, "Updating hand raised status on enter for user: $currentUserId")
+                val updates = mapOf(
+                    "handRaised" to true,
+                    "raisedHandTimestamp" to ServerValue.TIMESTAMP
+                )
+                
+                Log.d(TAG, "Sending Firebase update with values: $updates")
+                database.child("users").child(currentUserId).updateChildren(updates)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Successfully updated hand raised status on enter")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Failed to update hand raised status on enter", e)
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating hand raised status on enter", e)
+            }
+        }
+    }
+
+    fun onExitHighFiveScreen() {
+        viewModelScope.launch {
+            try {
+                // Get current user ID from userPreferences instead of _currentUser
+                val currentUser = userPreferences.userFlow.first()
+                val currentUserId = currentUser?.id ?: run {
+                    Log.e(TAG, "No current user ID available for hand raised status update")
+                    return@launch
+                }
+                
+                Log.d(TAG, "Updating hand raised status on exit for user: $currentUserId")
+                val updates = mapOf(
+                    "handRaised" to false
+                )
+                
+                Log.d(TAG, "Sending Firebase update with values: $updates")
+                database.child("users").child(currentUserId).updateChildren(updates)
+                    .addOnSuccessListener {
+                        Log.d(TAG, "Successfully updated hand raised status on exit")
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Failed to update hand raised status on exit", e)
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating hand raised status on exit", e)
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         // Clean up all listeners
@@ -534,6 +593,8 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 Log.e(TAG, "Error resetting ready state", e)
             }
         }
+        // Reset hand raised status when ViewModel is cleared
+        onExitHighFiveScreen()
     }
 }
 

@@ -90,14 +90,16 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
             try {
                 userPreferences.userFlow.collect { credentials ->
                     if (credentials != null) {
+                        Log.d(TAG, "Loading current user data for ID: ${credentials.id}")
                         if (_currentUserId.value != credentials.id) {
                             _currentUserId.value = credentials.id
-                            startHeartbeat(credentials.id) // Start heartbeat only when user ID changes
+                            startHeartbeat(credentials.id)
                         }
                         database.child("users").child(credentials.id)
                             .addValueEventListener(object : ValueEventListener {
                                 override fun onDataChange(snapshot: DataSnapshot) {
                                     val user = snapshot.getValue(User::class.java)
+                                    Log.d(TAG, "Current user data updated: handRaised=${user?.handRaised}, timestamp=${user?.raisedHandTimestamp}")
                                     _currentUser.value = user
                                 }
 
@@ -277,6 +279,26 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending high five", e)
                 _error.value = "Failed to send high five: ${e.message}"
+            }
+        }
+    }
+
+    fun updateHandRaisedStatus(isRaised: Boolean) {
+        val currentUserId = _currentUserId.value ?: return
+        viewModelScope.launch {
+            try {
+                val updates = mapOf(
+                    "handRaised" to isRaised,
+                    "raisedHandTimestamp" to if (isRaised) ServerValue.TIMESTAMP else 0L
+                )
+                database.child("users").child(currentUserId).updateChildren(updates)
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Error updating hand raised status", e)
+                        _error.value = "Failed to update hand raised status: ${e.message}"
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in updateHandRaisedStatus", e)
+                _error.value = e.message
             }
         }
     }

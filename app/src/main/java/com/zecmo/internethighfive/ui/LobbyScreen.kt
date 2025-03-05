@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -118,7 +119,8 @@ fun LobbyScreen(
                                 contentDescription = "High Five Logo",
                                 modifier = Modifier
                                     .size(150.dp)
-                                    .padding(bottom = 16.dp),
+                                    .padding(bottom = 16.dp)
+                                    .clickable { onNavigateToHighFive("test_user_id") },
                                 contentScale = ContentScale.Fit
                             )
                             Text(
@@ -233,10 +235,13 @@ private fun FriendCard(
             Button(
                 onClick = onHighFiveRequest,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
+                    containerColor = if (user.hasActiveHighFive) 
+                        MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.primary
+                ),
+                enabled = !user.hasActiveHighFive
             ) {
-                Text("High Five!")
+                Text(if (user.hasActiveHighFive) "Hand Raised!" else "High Five!")
             }
         }
     }

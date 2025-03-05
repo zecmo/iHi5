@@ -92,7 +92,9 @@ class AddUserViewModel : ViewModel() {
                 val newUser = User(
                     id = userId,
                     username = username,
-                    lastLoginTimestamp = System.currentTimeMillis()
+                    lastLoginTimestamp = System.currentTimeMillis(),
+                    handRaised = false,
+                    raisedHandTimestamp = 0L
                 )
 
                 Log.d(TAG, "Attempting to add user to Firebase: $newUser")

@@ -180,8 +180,20 @@ fun HighFiveScreen(
     val isReady by viewModel.isReady.collectAsState()
     val notification by viewModel.inAppNotification.collectAsState()
     
+    Log.d("HighFiveScreen", "HighFiveScreen composable called with partnerId: $partnerId")
+    
     LaunchedEffect(partnerId) {
+        Log.d("HighFiveScreen", "LaunchedEffect triggered for partnerId: $partnerId")
         viewModel.connectToUser(partnerId)
+        viewModel.onEnterHighFiveScreen()
+    }
+
+    DisposableEffect(Unit) {
+        Log.d("HighFiveScreen", "DisposableEffect setup")
+        onDispose {
+            Log.d("HighFiveScreen", "DisposableEffect onDispose called")
+            viewModel.onExitHighFiveScreen()
+        }
     }
 
     Scaffold(
