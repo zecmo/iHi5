@@ -40,7 +40,13 @@ fun LobbyScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("High Five Lobby") },
+                title = { 
+                    Text(
+                        text = "Internet Hi-5",
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateToProfile) {
                         Icon(Icons.Default.Person, contentDescription = "Profile")
@@ -48,28 +54,10 @@ fun LobbyScreen(
                 },
                 actions = {
                     IconButton(onClick = onNavigateToFriends) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = "Friends List")
+                        Icon(Icons.Default.Search, contentDescription = "Search Friends")
                     }
                 }
             )
-        },
-        bottomBar = {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 8.dp
-            ) {
-                Button(
-                    onClick = { onNavigateToHighFive("test_user_id") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text("Test High Five Screen")
-                }
-            }
         }
     ) { padding ->
         Column(
