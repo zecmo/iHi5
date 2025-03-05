@@ -112,26 +112,26 @@ fun LobbyScreen(
                             val context = LocalContext.current
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
-                                    .data("https://via.placeholder.com/150")
+                                    .data(R.drawable.hi5_logo)
                                     .crossfade(true)
                                     .build(),
-                                contentDescription = "Lobby Image",
+                                contentDescription = "High Five Logo",
                                 modifier = Modifier
                                     .size(150.dp)
                                     .padding(bottom = 16.dp),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Fit
                             )
                             Text(
-                                text = "Ready to High Five?",
+                                text = "Raise your hand",
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center
                             )
-                            Text(
-                                text = "Choose a friend to high five with!",
-                                style = MaterialTheme.typography.bodyLarge,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
+//                            Text(
+//                                text = "Choose a friend to high five with!",
+//                                style = MaterialTheme.typography.bodyLarge,
+//                                textAlign = TextAlign.Center,
+//                                modifier = Modifier.padding(top = 8.dp)
+//                            )
                         }
                     }
                 }
