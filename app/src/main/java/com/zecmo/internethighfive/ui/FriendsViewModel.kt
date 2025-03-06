@@ -303,6 +303,121 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun createHighFiveSession(partnerId: String) {
+        viewModelScope.launch {
+            try {
+                val currentUser = _currentUser.value ?: return@launch
+                Log.d(TAG, "Checking for existing high five session with partner: $partnerId")
+                
+                // First check if the partner has an active session
+                database.child("users").child(partnerId).child("currentHighFiveSession")
+                    .get()
+                    .addOnSuccessListener { snapshot ->
+                        val existingSessionId = snapshot.getValue(String::class.java)
+                        
+                        if (!existingSessionId.isNullOrEmpty()) {
+                            // Partner has an active session, join it
+                            Log.d(TAG, "Joining existing session: $existingSessionId")
+                            database.child("high_five_sessions").child(existingSessionId)
+                                .get()
+                                .addOnSuccessListener { sessionSnapshot ->
+                                    val session = sessionSnapshot.getValue(HighFiveSession::class.java)
+                                    if (session != null && session.partnerId.isEmpty()) {
+                                        // Update session with partner info
+                                        val updates = mapOf(
+                                            "partnerId" to currentUser.id,
+                                            "partnerUsername" to currentUser.username,
+                                            "lastUpdated" to ServerValue.TIMESTAMP
+                                        )
+                                        
+                                        // Update the session with partner info
+                                        database.child("high_five_sessions").child(existingSessionId)
+                                            .updateChildren(updates)
+                                            .addOnSuccessListener {
+                                                // Set currentHighFiveSession for the joining partner
+                                                database.child("users").child(currentUser.id)
+                                                    .child("currentHighFiveSession")
+                                                    .setValue(existingSessionId)
+                                                    .addOnSuccessListener {
+                                                        Log.d(TAG, "Successfully joined existing session")
+                                                    }
+                                                    .addOnFailureListener { e ->
+                                                        Log.e(TAG, "Failed to set currentHighFiveSession for partner", e)
+                                                        _error.value = "Failed to join session. Please try again."
+                                                    }
+                                            }
+                                            .addOnFailureListener { e ->
+                                                Log.e(TAG, "Failed to update session with partner info", e)
+                                                _error.value = "Failed to join session. Please try again."
+                                            }
+                                    } else {
+                                        _error.value = "Session is no longer available"
+                                    }
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.e(TAG, "Failed to get session details", e)
+                                    _error.value = "Failed to join session. Please try again."
+                                }
+                        } else {
+                            // Partner doesn't have an active session, create a new one
+                            Log.d(TAG, "Creating new high five session")
+                            val sessionId = UUID.randomUUID().toString()
+                            val newSession = HighFiveSession(
+                                id = sessionId,
+                                initiatorId = currentUser.id,
+                                initiatorUsername = currentUser.username,
+                                partnerId = partnerId,
+                                partnerUsername = "",  // Will be updated when partner joins
+                                initiatorTimestamp = System.currentTimeMillis(),
+                                partnerTimestamp = 0L,
+                                lastUpdated = System.currentTimeMillis(),
+                                completed = false,
+                                quality = ""
+                            )
+                            
+                            // Set currentHighFiveSession for initiator
+                            database.child("users").child(currentUser.id)
+                                .child("currentHighFiveSession")
+                                .setValue(sessionId)
+                                .addOnSuccessListener {
+                                    // Create the session
+                                    database.child("high_five_sessions").child(sessionId)
+                                        .setValue(newSession)
+                                        .addOnSuccessListener {
+                                            Log.d(TAG, "Successfully created high five session")
+                                            
+                                            // Send notification to partner
+                                            database.child("notifications").child(partnerId).push().setValue(
+                                                mapOf(
+                                                    "type" to "high_five_request",
+                                                    "senderId" to currentUser.id,
+                                                    "senderName" to currentUser.username,
+                                                    "timestamp" to System.currentTimeMillis()
+                                                )
+                                            )
+                                        }
+                                        .addOnFailureListener { e ->
+                                            Log.e(TAG, "Failed to create high five session", e)
+                                            _error.value = "Failed to create session. Please try again."
+                                        }
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.e(TAG, "Failed to set currentHighFiveSession for initiator", e)
+                                    _error.value = "Failed to create session. Please try again."
+                                }
+                        }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Failed to check partner's currentHighFiveSession", e)
+                        _error.value = "Error connecting to partner. Please try again."
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in createHighFiveSession", e)
+                _error.value = "Error: ${e.message}"
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         stopHeartbeat()

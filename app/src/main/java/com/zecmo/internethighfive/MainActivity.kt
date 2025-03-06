@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -176,15 +177,22 @@ fun HighFiveScreen(
     viewModel: HighFiveViewModel = viewModel()
 ) {
     val highFiveState by viewModel.highFiveState.collectAsState()
-    val connectedUser by viewModel.connectedUser.collectAsState()
-    val isReady by viewModel.isReady.collectAsState()
-    val notification by viewModel.inAppNotification.collectAsState()
+    val highFiveSession by viewModel.highFiveSession.collectAsState()
+    val touchCount by viewModel.touchCount.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
     
     Log.d("HighFiveScreen", "HighFiveScreen composable called with partnerId: $partnerId")
     
     LaunchedEffect(partnerId) {
         Log.d("HighFiveScreen", "LaunchedEffect triggered for partnerId: $partnerId")
-        viewModel.connectToUser(partnerId)
+        // Check if we're the initiator (user A) or partner (user B)
+        if (currentUser?.id == partnerId) {
+            // We're the initiator, create a new session
+            viewModel.createHighFiveSession(partnerId)
+        } else {
+            // We're the partner, try to join the existing session
+            viewModel.connectToUser(partnerId)
+        }
         viewModel.onEnterHighFiveScreen()
     }
 
@@ -199,180 +207,67 @@ fun HighFiveScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("High Five with ${connectedUser?.username ?: "..."}") },
+                title = { 
+                    Text(
+                        if (highFiveSession?.partnerUsername?.isNotEmpty() == true)
+                            "Connected with ${highFiveSession?.partnerUsername}"
+                        else
+                            "Awaiting Partner"
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
-        },
-        snackbarHost = {
-            notification?.let { message ->
-                Snackbar(
-                    modifier = Modifier.padding(16.dp),
-                    action = {
-                        TextButton(onClick = { viewModel.dismissNotification() }) {
-                            Text("Dismiss")
-                        }
-                    }
-                ) {
-                    Text(message)
-                }
-            }
         }
-    ) { padding ->
-        Column(
+    ) { paddingValues ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(paddingValues)
         ) {
-            // Partner Status Card
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (connectedUser != null) {
-                        Text(
-                            text = connectedUser!!.username,
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                modifier = Modifier.size(8.dp),
-                                shape = CircleShape,
-                                color = if (viewModel.isPartnerReady()) 
-                                    MaterialTheme.colorScheme.primary 
-                                else 
-                                    MaterialTheme.colorScheme.surfaceVariant
-                            ) {}
-                            Text(
-                                text = if (viewModel.isPartnerReady()) "Ready!" else "Not Ready",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (viewModel.isPartnerReady()) 
-                                    MaterialTheme.colorScheme.primary 
-                                else 
-                                    MaterialTheme.colorScheme.error
-                            )
-                        }
-                    } else {
-                        CircularProgressIndicator()
-                    }
-                }
-            }
-
-            // Ready Button
-            Button(
-                onClick = { viewModel.setReady(!isReady) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isReady) 
-                        MaterialTheme.colorScheme.primary 
-                    else 
-                        MaterialTheme.colorScheme.secondary
-                ),
-                modifier = Modifier.padding(horizontal = 16.dp)
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        if (isReady) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = null
-                    )
-                    Text(if (isReady) "I'm Ready!" else "Get Ready")
-                }
-            }
-
-            // High Five Area
+            // Touch counter banner
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(16.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = "Touches: $touchCount",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            // Main touchable area with hand outline
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTapGestures {
-                            if (isReady && viewModel.isPartnerReady()) {
-                                viewModel.initiateHighFive()
-                            }
+                            viewModel.incrementTouchCount()
+                            viewModel.initiateHighFive()
                         }
                     },
-                shape = MaterialTheme.shapes.large,
-                border = BorderStroke(
-                    width = 2.dp,
-                    color = when (highFiveState) {
-                        is HighFiveState.Success -> MaterialTheme.colorScheme.primary
-                        is HighFiveState.Error -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.outline
-                    }
-                )
+                color = MaterialTheme.colorScheme.surface
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    when (highFiveState) {
-                        is HighFiveState.Success -> {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "High Five!",
-                                    style = MaterialTheme.typography.displayMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "Quality: ${(highFiveState as HighFiveState.Success).quality * 100}%",
-                                    style = MaterialTheme.typography.titleLarge
-                                )
-                            }
-                        }
-                        is HighFiveState.Error -> {
-                            Text(
-                                text = (highFiveState as HighFiveState.Error).message,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                        is HighFiveState.Waiting -> {
-                            if (isReady && viewModel.isPartnerReady()) {
-                                Text(
-                                    text = "Tap to High Five!",
-                                    style = MaterialTheme.typography.headlineMedium
-                                )
-                            } else {
-                                Text(
-                                    text = "Waiting for both users to be ready...",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                            }
-                        }
-                        HighFiveState.Idle -> {
-                            Text(
-                                text = if (isReady && viewModel.isPartnerReady())
-                                    "Both ready! Tap to High Five!"
-                                else if (isReady)
-                                    "Waiting for partner..."
-                                else
-                                    "Get ready to High Five!",
-                                style = MaterialTheme.typography.headlineMedium
-                            )
-                        }
-                    }
+                    // Hand outline
+                    Icon(
+                        imageVector = Icons.Default.BackHand,
+                        contentDescription = "High Five Hand",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .alpha(0.1f),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }

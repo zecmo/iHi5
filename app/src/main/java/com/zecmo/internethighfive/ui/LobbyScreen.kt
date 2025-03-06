@@ -108,7 +108,11 @@ fun LobbyScreen(
                                 modifier = Modifier
                                     .size(150.dp)
                                     .padding(bottom = 16.dp)
-                                    .clickable { onNavigateToHighFive("test_user_id") },
+                                    .clickable { 
+                                        // Create a session with a test user when clicking the logo
+                                        viewModel.createHighFiveSession("test_user_id")
+                                        onNavigateToHighFive("test_user_id")
+                                    },
                                 contentScale = ContentScale.Fit
                             )
                             Text(
@@ -116,12 +120,6 @@ fun LobbyScreen(
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center
                             )
-//                            Text(
-//                                text = "Choose a friend to high five with!",
-//                                style = MaterialTheme.typography.bodyLarge,
-//                                textAlign = TextAlign.Center,
-//                                modifier = Modifier.padding(top = 8.dp)
-//                            )
                         }
                     }
                 }
@@ -165,7 +163,11 @@ fun LobbyScreen(
                     ) { friend ->
                         FriendCard(
                             user = friend,
-                            onHighFiveRequest = { onNavigateToHighFive(friend.id) }
+                            onHighFiveRequest = { 
+                                // Create a session with the friend before navigating
+                                viewModel.createHighFiveSession(friend.id)
+                                onNavigateToHighFive(friend.id)
+                            }
                         )
                     }
                 }
@@ -224,7 +226,7 @@ private fun FriendCard(
                 onClick = onHighFiveRequest,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (user.hasActiveHighFive) 
-                        MaterialTheme.colorScheme.secondary
+                        Color(0xFF4CAF50)  // Material Design Green 500
                         else MaterialTheme.colorScheme.primary
                 ),
                 enabled = true

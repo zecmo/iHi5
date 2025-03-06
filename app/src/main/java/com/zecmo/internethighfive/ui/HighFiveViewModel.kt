@@ -36,17 +36,17 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser = _currentUser.asStateFlow()
 
-    private val _connectedUser = MutableStateFlow<User?>(null)
-    val connectedUser = _connectedUser.asStateFlow()
-
     private val _highFiveSession = MutableStateFlow<HighFiveSession?>(null)
     val highFiveSession = _highFiveSession.asStateFlow()
 
-    private val _isReady = MutableStateFlow(false)
-    val isReady = _isReady.asStateFlow()
+    private val _touchCount = MutableStateFlow(0)
+    val touchCount = _touchCount.asStateFlow()
 
     private val _inAppNotification = MutableStateFlow<String?>(null)
     val inAppNotification = _inAppNotification.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
 
     init {
         loadCurrentUser()
@@ -56,7 +56,6 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             userPreferences.userFlow.collect { credentials ->
                 if (credentials != null) {
-                    // Load full user data from Firebase
                     database.child("users").child(credentials.id)
                         .addValueEventListener(object : ValueEventListener {
                             override fun onDataChange(snapshot: DataSnapshot) {
@@ -71,7 +70,6 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                         })
                 } else {
                     _currentUser.value = null
-                    _connectedUser.value = null
                 }
             }
         }
@@ -84,7 +82,6 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 override fun onDataChange(snapshot: DataSnapshot) {
                     val user = snapshot.getValue(User::class.java)?.copy(id = id)
                     Log.d(TAG, "Connected user loaded: ${user?.username}")
-                    _connectedUser.value = user
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -96,16 +93,18 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     private fun sendHighFiveNotification(partnerId: String, type: String, data: Map<String, String>) {
         Log.d(TAG, "Sending notification to $partnerId: type=$type, data=$data")
-        database.child("notifications").child(partnerId).push().setValue(
-            mapOf(
-                "type" to type,
-                "timestamp" to ServerValue.TIMESTAMP
-            ) + data
-        ).addOnSuccessListener {
-            Log.d(TAG, "Successfully sent notification")
-        }.addOnFailureListener { e ->
-            Log.e(TAG, "Failed to send notification", e)
-        }
+        val notificationData = HashMap<String, Any>()
+        notificationData["type"] = type
+        notificationData["timestamp"] = ServerValue.TIMESTAMP
+        notificationData.putAll(data)
+        
+        database.child("notifications").child(partnerId).push().setValue(notificationData)
+            .addOnSuccessListener {
+                Log.d(TAG, "Successfully sent notification")
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to send notification", e)
+            }
     }
 
     fun dismissNotification() {
@@ -117,107 +116,67 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun connectToUser(partnerId: String) {
-        Log.d(TAG, "Connecting to user with ID: $partnerId")
         viewModelScope.launch {
             try {
-                val currentUser = userPreferences.userFlow.first()
-                if (currentUser != null) {
-                    Log.d(TAG, "Current user found: ${currentUser.username}")
-                    
-                    // Always order user IDs alphabetically to ensure consistent session IDs
-                    val (firstUserId, secondUserId) = listOf(currentUser.id, partnerId).sorted()
-                    val sessionId = "${firstUserId}_${secondUserId}"
-                    
-                    // First, check if a session already exists between these two users
-                    database.child("high_five_sessions").child(sessionId)
-                        .get()
-                        .addOnSuccessListener { existingSessionSnapshot ->
-                            val existingSession = existingSessionSnapshot.getValue(HighFiveSession::class.java)
+                val currentUser = userPreferences.userFlow.first() ?: return@launch
+                Log.d(TAG, "Attempting to connect to user: $partnerId")
+                
+                // First check if the partner has an active session
+                database.child("users").child(partnerId).child("currentHighFiveSession")
+                    .get()
+                    .addOnSuccessListener { snapshot ->
+                        val existingSessionId = snapshot.getValue(String::class.java)
+                        
+                        if (!existingSessionId.isNullOrEmpty()) {
+                            // Partner has an active session, join it
+                            Log.d(TAG, "Found existing session: $existingSessionId")
                             
-                            if (existingSession != null) {
-                                // Session exists, just join it
-                                Log.d(TAG, "Joining existing session: $sessionId")
-                                loadConnectedUser(partnerId)
-                                listenForHighFiveSession(sessionId)
-                                return@addOnSuccessListener
-                            }
+                            // Update the session with partner info
+                            val sessionUpdates = mapOf(
+                                "partnerId" to currentUser.id,
+                                "partnerUsername" to currentUser.username,
+                                "lastUpdated" to ServerValue.TIMESTAMP
+                            )
                             
-                            // If no direct session exists, check for any other active sessions
-                            val fiveMinutesAgo = (System.currentTimeMillis() - 300000).toDouble()
-                            database.child("high_five_sessions")
-                                .orderByChild("lastUpdated")
-                                .startAt(fiveMinutesAgo)
-                                .get()
-                                .addOnSuccessListener { snapshot ->
-                                    val existingSessions = mutableListOf<HighFiveSession>()
-                                    snapshot.children.forEach { sessionSnapshot ->
-                                        sessionSnapshot.getValue(HighFiveSession::class.java)?.let { session ->
-                                            existingSessions.add(session)
-                                        }
-                                    }
-                                    
-                                    // Check if either user is in any other active session
-                                    val userInOtherSession = existingSessions.any { session ->
-                                        (session.userId1 == currentUser.id || session.userId2 == currentUser.id ||
-                                         session.userId1 == partnerId || session.userId2 == partnerId) &&
-                                        session.id != sessionId
-                                    }
-                                    
-                                    if (userInOtherSession) {
-                                        showInAppNotification("Cannot connect: One of the users is already in another session")
-                                        return@addOnSuccessListener
-                                    }
-                                    
-                                    // Create new session with consistent user ordering
-                                    val newSession = HighFiveSession(
-                                        id = sessionId,
-                                        userId1 = firstUserId,
-                                        userId2 = secondUserId,
-                                        isUser1Ready = false,
-                                        isUser2Ready = false,
-                                        lastUpdated = System.currentTimeMillis()
-                                    )
-                                    
-                                    database.child("high_five_sessions").child(sessionId)
-                                        .setValue(newSession)
+                            // Update the session with partner info
+                            database.child("high_five_sessions").child(existingSessionId)
+                                .updateChildren(sessionUpdates)
+                                .addOnSuccessListener {
+                                    // Set currentHighFiveSession for the joining partner
+                                    database.child("users").child(currentUser.id)
+                                        .child("currentHighFiveSession")
+                                        .setValue(existingSessionId)
                                         .addOnSuccessListener {
-                                            Log.d(TAG, "Successfully created high five session")
-                                            loadConnectedUser(partnerId)
-                                            listenForHighFiveSession(sessionId)
-                                            
-                                            // Send notification to partner
-                                            sendHighFiveNotification(
-                                                partnerId = partnerId,
-                                                type = "high_five_request",
-                                                data = mapOf("senderName" to currentUser.username)
-                                            )
+                                            Log.d(TAG, "Successfully joined session")
+                                            _highFiveState.value = HighFiveState.WaitingForPartner
+                                            listenForHighFiveSession(existingSessionId)
                                         }
                                         .addOnFailureListener { e ->
-                                            Log.e(TAG, "Failed to create high five session", e)
-                                            showInAppNotification("Failed to create session. Please try again.")
+                                            Log.e(TAG, "Failed to set currentHighFiveSession for partner", e)
+                                            _error.value = "Failed to join session. Please try again."
                                         }
                                 }
                                 .addOnFailureListener { e ->
-                                    Log.e(TAG, "Error checking for existing sessions", e)
-                                    showInAppNotification("Error creating session. Please try again.")
+                                    Log.e(TAG, "Failed to update session with partner info", e)
+                                    _error.value = "Failed to join session. Please try again."
                                 }
+                        } else {
+                            Log.e(TAG, "Partner has no active session")
+                            _error.value = "Partner is not ready for a high five"
                         }
-                        .addOnFailureListener { e ->
-                            Log.e(TAG, "Error checking for existing session", e)
-                            showInAppNotification("Error connecting to session. Please try again.")
-                        }
-                } else {
-                    Log.e(TAG, "No current user found when trying to connect")
-                }
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "Failed to check partner's currentHighFiveSession", e)
+                        _error.value = "Error connecting to partner. Please try again."
+                    }
             } catch (e: Exception) {
-                Log.e(TAG, "Error connecting to user", e)
-                showInAppNotification("Error connecting to user. Please try again.")
+                Log.e(TAG, "Error in connectToUser", e)
+                _error.value = "Error: ${e.message}"
             }
         }
     }
 
     private fun listenForHighFiveSession(sessionId: String) {
-        // Remove any existing session listener
         activeSessionListener?.let {
             database.child("high_five_sessions").child(sessionId).removeEventListener(it)
         }
@@ -228,62 +187,24 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 val previousSession = _highFiveSession.value
                 _highFiveSession.value = session
                 
-                // Update local ready state based on session
                 val currentUserId = _currentUser.value?.id
                 if (currentUserId != null && session != null) {
-                    val isCurrentUserReady = if (currentUserId == session.userId1) {
-                        session.isUser1Ready
-                    } else {
-                        session.isUser2Ready
-                    }
-                    _isReady.value = isCurrentUserReady
-                    
-                    // Check if partner's ready state changed
-                    val isPartnerReady = if (currentUserId == session.userId1) {
-                        session.isUser2Ready
-                    } else {
-                        session.isUser1Ready
+                    // Update partnerUsername if we're the partner
+                    if (currentUserId == session.partnerId && session.partnerUsername.isEmpty()) {
+                        val updates = mapOf(
+                            "partnerUsername" to (_currentUser.value?.username ?: "")
+                        )
+                        database.child("high_five_sessions").child(sessionId)
+                            .updateChildren(updates)
                     }
                     
-                    val wasPartnerReady = if (previousSession != null) {
-                        if (currentUserId == previousSession.userId1) {
-                            previousSession.isUser2Ready
-                        } else {
-                            previousSession.isUser1Ready
-                        }
-                    } else {
-                        false
-                    }
-                    
-                    // Show notification if partner's ready state changed
-                    if (isPartnerReady != wasPartnerReady) {
-                        if (isPartnerReady) {
-                            showInAppNotification("Your partner is ready! Get ready too!")
-                            // Send FCM notification
-                            val partnerId = if (currentUserId == session.userId1) session.userId2 else session.userId1
-                            val connectedUser = _connectedUser.value
-                            if (connectedUser != null) {
-                                database.child("notifications").child(partnerId).push().setValue(
-                                    mapOf(
-                                        "type" to "high_five_ready",
-                                        "partnerName" to connectedUser.username,
-                                        "timestamp" to ServerValue.TIMESTAMP
-                                    )
-                                )
-                            }
-                        } else {
-                            showInAppNotification("Your partner is no longer ready")
-                        }
-                    }
-                    
-                    // Show notification if both are ready
-                    if (isPartnerReady && isCurrentUserReady) {
-                        showInAppNotification("Both players ready! Tap to high five!")
+                    // Show notification if session is completed
+                    if (session.completed == true && previousSession?.completed != true) {
+                        showInAppNotification("High five completed! Quality: ${session.quality}")
                     }
                 } else if (session == null) {
                     // Session was deleted or doesn't exist
                     _highFiveSession.value = null
-                    _isReady.value = false
                     showInAppNotification("Session ended")
                 }
             }
@@ -299,69 +220,9 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         activeSessionListener = listener
     }
 
-    fun setReady(ready: Boolean) {
-        viewModelScope.launch {
-            try {
-                val currentUser = userPreferences.userFlow.first()
-                val session = _highFiveSession.value
-                
-                if (currentUser != null && session != null) {
-                    // Determine if we're user1 or user2 based on the sorted order
-                    val isUser1 = currentUser.id == session.userId1
-                    
-                    // Update ready state in session
-                    val updates = mutableMapOf<String, Any>()
-                    if (isUser1) {
-                        updates["isUser1Ready"] = ready
-                    } else {
-                        updates["isUser2Ready"] = ready
-                    }
-                    updates["lastUpdated"] = ServerValue.TIMESTAMP
-                    
-                    database.child("high_five_sessions").child(session.id)
-                        .updateChildren(updates)
-                        .addOnSuccessListener {
-                            Log.d(TAG, "Successfully updated ready state in session")
-                            _isReady.value = ready
-                            
-                            // Show notification
-                            if (ready) {
-                                showInAppNotification("You're ready! Waiting for partner...")
-                            }
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e(TAG, "Failed to update ready state", e)
-                            showInAppNotification("Failed to update ready state. Please try again.")
-                        }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error setting ready state", e)
-                showInAppNotification("Error setting ready state. Please try again.")
-            }
-        }
-    }
-
     fun initiateHighFive() {
         val currentUser = _currentUser.value ?: return
         val session = _highFiveSession.value ?: return
-
-        if (!_isReady.value) {
-            _highFiveState.value = HighFiveState.Error("You need to be ready first!")
-            return
-        }
-
-        // Check if partner is ready using session
-        val currentUserId = currentUser.id
-        val isPartnerReady = if (currentUserId == session.userId1) {
-            session.isUser2Ready
-        } else {
-            session.isUser1Ready
-        }
-
-        if (!isPartnerReady) {
-            _highFiveState.value = HighFiveState.Error("Your friend needs to be ready!")
-            return
-        }
 
         if (_highFiveState.value !is HighFiveState.Idle) {
             return
@@ -374,10 +235,10 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 val highFiveId = UUID.randomUUID().toString()
                 val timestamp = System.currentTimeMillis()
                 
-                val partnerId = if (currentUserId == session.userId1) {
-                    session.userId2
+                val partnerId = if (currentUser.id == session.initiatorId) {
+                    session.partnerId
                 } else {
-                    session.userId1
+                    session.initiatorId
                 }
                 
                 val highFive = HighFive(
@@ -462,9 +323,24 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun respondToHighFive(highFive: HighFive) {
-        if (!_isReady.value) return
-        
         val timestamp = System.currentTimeMillis()
+        val timeDiff = highFive.getTimeDifference()
+        val quality = calculateHighFiveQuality(timeDiff)
+        
+        // Update high five session with completion
+        val session = _highFiveSession.value
+        if (session != null) {
+            val updates = mapOf(
+                "partnerTimestamp" to timestamp,
+                "completed" to true,
+                "quality" to quality,
+                "lastUpdated" to ServerValue.TIMESTAMP
+            )
+            
+            database.child("high_five_sessions").child(session.id)
+                .updateChildren(updates)
+        }
+        
         database.child("high_fives").child(highFive.id)
             .updateChildren(mapOf(
                 "receiverTimestamp" to timestamp,
@@ -482,21 +358,9 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun isPartnerReady(): Boolean {
-        val session = _highFiveSession.value ?: return false
-        val currentUserId = _currentUser.value?.id ?: return false
-        
-        return if (currentUserId == session.userId1) {
-            session.isUser2Ready
-        } else {
-            session.isUser1Ready
-        }
-    }
-
     fun onEnterHighFiveScreen() {
         viewModelScope.launch {
             try {
-                // Get current user ID from userPreferences instead of _currentUser
                 val currentUser = userPreferences.userFlow.first()
                 val currentUserId = currentUser?.id ?: run {
                     Log.e(TAG, "No current user ID available for hand raised status update")
@@ -526,28 +390,30 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     fun onExitHighFiveScreen() {
         viewModelScope.launch {
             try {
-                // Get current user ID from userPreferences instead of _currentUser
                 val currentUser = userPreferences.userFlow.first()
-                val currentUserId = currentUser?.id ?: run {
-                    Log.e(TAG, "No current user ID available for hand raised status update")
-                    return@launch
-                }
+                val session = _highFiveSession.value
                 
-                Log.d(TAG, "Updating hand raised status on exit for user: $currentUserId")
+                // Clear currentHighFiveSession and handRaised status for the user
                 val updates = mapOf(
+                    "currentHighFiveSession" to "",
                     "handRaised" to false
                 )
+                database.child("users").child(currentUser?.id ?: "").updateChildren(updates)
                 
-                Log.d(TAG, "Sending Firebase update with values: $updates")
-                database.child("users").child(currentUserId).updateChildren(updates)
-                    .addOnSuccessListener {
-                        Log.d(TAG, "Successfully updated hand raised status on exit")
+                // If user is initiator and session is not completed, delete the session
+                if (session != null && !session.completed && session.initiatorId == currentUser?.id) {
+                    Log.d(TAG, "Initiator leaving, deleting incomplete session: ${session.id}")
+                    database.child("high_five_sessions").child(session.id).removeValue()
+                    // Also clear partner's currentHighFiveSession and handRaised status
+                    if (session.partnerId.isNotEmpty()) {
+                        database.child("users").child(session.partnerId).updateChildren(updates)
                     }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "Failed to update hand raised status on exit", e)
-                    }
+                }
+                
+                _highFiveSession.value = null
+                _highFiveState.value = HighFiveState.Idle
             } catch (e: Exception) {
-                Log.e(TAG, "Error updating hand raised status on exit", e)
+                Log.e(TAG, "Error in onExitHighFiveScreen", e)
             }
         }
     }
@@ -566,41 +432,82 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
             }
         }
         
-        // Reset ready state in session when leaving
-        viewModelScope.launch {
-            try {
-                val currentUser = _currentUser.value
-                val session = _highFiveSession.value
-                if (currentUser != null && session != null) {
-                    val updates = mutableMapOf<String, Any>()
-                    if (currentUser.id == session.userId1) {
-                        updates["isUser1Ready"] = false
-                    } else {
-                        updates["isUser2Ready"] = false
-                    }
-                    updates["lastUpdated"] = ServerValue.TIMESTAMP
-                    
-                    database.child("high_five_sessions").child(session.id)
-                        .updateChildren(updates)
-                        .addOnSuccessListener {
-                            Log.d(TAG, "Successfully reset ready state in session")
-                        }
-                        .addOnFailureListener { e ->
-                            Log.e(TAG, "Failed to reset ready state", e)
-                        }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error resetting ready state", e)
-            }
-        }
         // Reset hand raised status when ViewModel is cleared
         onExitHighFiveScreen()
+    }
+
+    fun incrementTouchCount() {
+        _touchCount.value++
+    }
+
+    fun createHighFiveSession(partnerId: String) {
+        Log.d(TAG, "Creating new high five session with partner: $partnerId")
+        viewModelScope.launch {
+            try {
+                val currentUser = userPreferences.userFlow.first()
+                if (currentUser != null) {
+                    Log.d(TAG, "Current user found: ${currentUser.username}")
+                    
+                    // Create new session
+                    val sessionId = UUID.randomUUID().toString()
+                    val newSession = HighFiveSession(
+                        id = sessionId,
+                        initiatorId = currentUser.id,
+                        initiatorUsername = currentUser.username,
+                        partnerId = "",  // Will be updated when partner joins
+                        partnerUsername = "",  // Will be updated when partner joins
+                        initiatorTimestamp = System.currentTimeMillis(),
+                        partnerTimestamp = 0L,
+                        lastUpdated = System.currentTimeMillis(),
+                        completed = false,
+                        quality = ""
+                    )
+                    
+                    // First create the session
+                    database.child("high_five_sessions").child(sessionId)
+                        .setValue(newSession)
+                        .addOnSuccessListener {
+                            // Then set currentHighFiveSession for initiator
+                            database.child("users").child(currentUser.id)
+                                .child("currentHighFiveSession")
+                                .setValue(sessionId)
+                                .addOnSuccessListener {
+                                    Log.d(TAG, "Successfully created high five session")
+                                    _highFiveSession.value = newSession
+                                    _highFiveState.value = HighFiveState.WaitingForPartner
+                                    listenForHighFiveSession(sessionId)
+                                    
+                                    // Send notification to partner
+                                    sendHighFiveNotification(
+                                        partnerId = partnerId,
+                                        type = "high_five_request",
+                                        data = mapOf("senderName" to currentUser.username)
+                                    )
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.e(TAG, "Failed to set currentHighFiveSession for initiator", e)
+                                    _error.value = "Failed to create session. Please try again."
+                                }
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e(TAG, "Failed to create high five session", e)
+                            _error.value = "Failed to create session. Please try again."
+                        }
+                } else {
+                    Log.e(TAG, "No current user found when trying to create session")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating high five session", e)
+                _error.value = "Error creating session. Please try again."
+            }
+        }
     }
 }
 
 sealed class HighFiveState {
     object Idle : HighFiveState()
     object Waiting : HighFiveState()
+    object WaitingForPartner : HighFiveState()
     data class Success(val quality: Float) : HighFiveState()
     data class Error(val message: String) : HighFiveState()
 } 
