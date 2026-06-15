@@ -1,22 +1,26 @@
 package com.zecmo.internethighfive.data
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class HighFive(
     val id: String = "",
+    @SerialName("initiator_id")
     val initiatorId: String = "",
+    @SerialName("receiver_id")
     val receiverId: String = "",
-    val initiatorTimestamp: Long = 0,
-    val receiverTimestamp: Long = 0,
-    val status: String = "pending", // pending, matched, expired, completed
-    val quality: Float = 0f,
-    val createdAt: Long = System.currentTimeMillis()
+    @SerialName("initiator_timestamp")
+    val initiatorTimestamp: Long = 0L,
+    @SerialName("receiver_timestamp")
+    val receiverTimestamp: Long = 0L,
+    val status: String = "pending", // pending | matched | completed | expired
+    val quality: Float = 0f
 ) {
-    // Empty constructor for Firebase
-    constructor() : this("", "", "", 0, 0, "pending", 0f, 0)
-
-    fun isComplete(): Boolean = status == "completed"
     fun isPending(): Boolean = status == "pending"
-    fun isExpired(): Boolean = status == "expired"
     fun isMatched(): Boolean = status == "matched"
-    
+    fun isCompleted(): Boolean = status == "completed"
+    fun isExpired(): Boolean = status == "expired"
+
     fun getTimeDifference(): Long = kotlin.math.abs(initiatorTimestamp - receiverTimestamp)
-} 
+}

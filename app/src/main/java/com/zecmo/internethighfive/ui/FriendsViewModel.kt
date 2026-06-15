@@ -4,46 +4,56 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ValueEventListener
-import com.google.firebase.database.ServerValue
+import com.zecmo.internethighfive.SupabaseClient
+import com.zecmo.internethighfive.data.HighFiveSession
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.data.UserPreferences
-import com.zecmo.internethighfive.data.HighFiveSession
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import java.util.UUID
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import com.google.firebase.messaging.FirebaseMessaging
+import io.github.jan.supabase.functions.functions
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
+import java.util.UUID
 
 class FriendsViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val TAG = "FriendsViewModel"
-        private const val HEARTBEAT_INTERVAL = 1000L // 1 second
+        private const val HEARTBEAT_INTERVAL = 5_000L // 5 seconds
     }
 
-    private val database = FirebaseDatabase.getInstance("https://internethighfive-zecmo-default-rtdb.firebaseio.com").reference
+    private val supabase = SupabaseClient.client
     private val userPreferences = UserPreferences(application)
-    
+
+    // All non-self users — used by Find Fivers screen
+    private val _allUsers = MutableStateFlow<List<User>>(emptyList())
+    val allUsers: StateFlow<List<User>> = _allUsers.asStateFlow()
+
+    // Only users who are mutual friends — used by Lobby
     private val _friends = MutableStateFlow<List<User>>(emptyList())
     val friends: StateFlow<List<User>> = _friends.asStateFlow()
 
-    private val _currentUserFriends = MutableStateFlow<List<String>>(emptyList())
-    val currentUserFriends: StateFlow<List<String>> = _currentUserFriends.asStateFlow()
-
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-
-    private val _searchResults = MutableStateFlow<List<User>>(emptyList())
-    val searchResults: StateFlow<List<User>> = _searchResults.asStateFlow()
+    private val _friendIds = MutableStateFlow<List<String>>(emptyList())
+    val friendIds: StateFlow<List<String>> = _friendIds.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -58,247 +68,287 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
     private var heartbeatJob: Job? = null
+    private var usersChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
+
+    // Local cache of fields we actually care about for UI changes.
+    // Realtime sends the full row on every UPDATE (including heartbeat last_login_at writes),
+    // so we compare against this to avoid reloading on irrelevant changes.
+    private val cachedHandRaised = mutableMapOf<String, Boolean>()
+    private val cachedCurrentSession = mutableMapOf<String, String>()
 
     init {
-        loadCurrentUser()
-        loadAllUsers()
-    }
-
-    private fun startHeartbeat(userId: String) {
-        stopHeartbeat() // Stop any existing heartbeat
-        heartbeatJob = viewModelScope.launch {
-            while (isActive) {
-                try {
-                    database.child("users").child(userId)
-                        .updateChildren(mapOf("lastLoginTimestamp" to ServerValue.TIMESTAMP))
-                    delay(HEARTBEAT_INTERVAL)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in heartbeat", e)
-                    delay(HEARTBEAT_INTERVAL) // Still delay on error to prevent rapid retries
+        viewModelScope.launch {
+            userPreferences.userFlow.collect { credentials ->
+                if (credentials != null && credentials.id != _currentUserId.value) {
+                    _currentUserId.value = credentials.id
+                    // Reset any stale hand/session state left over from a previous crash or kill
+                    try {
+                        supabase.from("users").update({
+                            set("hand_raised", false)
+                            set("current_session", "")
+                        }) { filter { eq("id", credentials.id) } }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "launch reset failed", e)
+                    }
+                    storeFcmToken(credentials.id)
+                    startHeartbeat(credentials.id)
+                    loadCurrentUser(credentials.id)
+                    loadAllUsers()
+                    subscribeToUserChanges()
+                    loadFriendIds(credentials.id)
                 }
             }
         }
     }
 
-    private fun stopHeartbeat() {
+    // ── Heartbeat ──────────────────────────────────────────────────────────────
+
+    private fun startHeartbeat(userId: String) {
         heartbeatJob?.cancel()
-        heartbeatJob = null
+        heartbeatJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    supabase.from("users").update({
+                        set("last_login_at", System.currentTimeMillis())
+                    }) {
+                        filter { eq("id", userId) }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Heartbeat failed", e)
+                }
+                delay(HEARTBEAT_INTERVAL)
+            }
+        }
     }
 
-    private fun loadCurrentUser() {
-        viewModelScope.launch {
-            try {
-                userPreferences.userFlow.collect { credentials ->
-                    if (credentials != null) {
-                        Log.d(TAG, "Loading current user data for ID: ${credentials.id}")
-                        if (_currentUserId.value != credentials.id) {
-                            _currentUserId.value = credentials.id
-                            startHeartbeat(credentials.id)
-                        }
-                        database.child("users").child(credentials.id)
-                            .addValueEventListener(object : ValueEventListener {
-                                override fun onDataChange(snapshot: DataSnapshot) {
-                                    val user = snapshot.getValue(User::class.java)
-                                    Log.d(TAG, "Current user data updated: handRaised=${user?.handRaised}, timestamp=${user?.raisedHandTimestamp}")
-                                    _currentUser.value = user
-                                }
+    // ── Data loading ───────────────────────────────────────────────────────────
 
-                                override fun onCancelled(error: DatabaseError) {
-                                    Log.e(TAG, "Error loading current user", error.toException())
-                                    _error.value = "Failed to load current user: ${error.message}"
-                                }
-                            })
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in loadCurrentUser", e)
-                _error.value = "Failed to load current user: ${e.message}"
-            }
+    private suspend fun loadCurrentUser(userId: String) {
+        try {
+            val user = supabase.from("users")
+                .select { filter { eq("id", userId) } }
+                .decodeSingleOrNull<User>()
+            _currentUser.value = user
+        } catch (e: Exception) {
+            Log.e(TAG, "loadCurrentUser failed", e)
         }
     }
 
     private fun loadAllUsers() {
-        Log.d(TAG, "Starting to load all users")
-        _isLoading.value = true
-        _error.value = null
-
-        database.child("users")
-            .addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    try {
-                        val usersList = snapshot.children.mapNotNull { 
-                            try {
-                                it.getValue(User::class.java)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error processing user from snapshot: ${it.key}", e)
-                                null
-                            }
-                        }
-                        
-                        Log.d(TAG, "Successfully loaded ${usersList.size} users")
-                        _friends.value = usersList.sortedByDescending { it.isOnline }
-                        _isLoading.value = false
-                        
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error processing users", e)
-                        _error.value = "Error processing users: ${e.message ?: "Unknown error"}"
-                        _isLoading.value = false
-                    }
-                }
-
-                override fun onCancelled(error: DatabaseError) {
-                    Log.e(TAG, "Firebase error loading users: ${error.message}", error.toException())
-                    _error.value = "Failed to load users: ${error.message}"
-                    _isLoading.value = false
-                }
-            })
-    }
-
-    fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-        if (query.isBlank()) {
-            _searchResults.value = emptyList()
-            return
-        }
-
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
-                database.child("users")
-                    .orderByChild("username")
-                    .startAt(query.lowercase())
-                    .endAt(query.lowercase() + "\uf8ff")
-                    .limitToFirst(20)
-                    .addListenerForSingleValueEvent(object : ValueEventListener {
-                        override fun onDataChange(snapshot: DataSnapshot) {
-                            val currentUserId = _currentUserId.value
-                            val friendIds = _currentUserFriends.value
-                            
-                            val results = snapshot.children
-                                .mapNotNull { it.getValue(User::class.java) }
-                                .filter { it.id != currentUserId }
-                                .sortedBy { user ->
-                                    val onlineKey = if (user.isOnline) "0" else "1"
-                                    val friendKey = if (friendIds.contains(user.id)) "0" else "1"
-                                    "$onlineKey$friendKey${user.username}"
-                                }
-                            
-                            _searchResults.value = results
-                            _isLoading.value = false
-                            Log.d(TAG, "Found ${results.size} users matching '$query' (${results.count { it.isOnline }} online)")
-                        }
-
-                        override fun onCancelled(error: DatabaseError) {
-                            Log.e(TAG, "Error searching users", error.toException())
-                            _error.value = error.message
-                            _isLoading.value = false
-                        }
-                    })
+                val selfId = _currentUserId.value
+                val users = supabase.from("users")
+                    .select()
+                    .decodeList<User>()
+                    .filter { it.id != selfId }          // never show self
+                    .sortedByDescending { it.isOnline }
+                _allUsers.value = users
+                rebuildFriendsList(users)
+                // Seed cache so first realtime event has a baseline to compare against
+                users.forEach { u ->
+                    cachedHandRaised[u.id] = u.handRaised
+                    cachedCurrentSession[u.id] = u.currentSession
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Error in search", e)
-                _error.value = e.message
+                Log.e(TAG, "loadAllUsers failed", e)
+                _error.value = "Failed to load users: ${e.message}"
+            } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    fun addFriend(userId: String) {
-        val currentUserId = _currentUserId.value ?: return
+    private fun rebuildFriendsList(users: List<User> = _allUsers.value) {
+        val ids = _friendIds.value
+        _friends.value = users.filter { it.id in ids }
+    }
+
+    private suspend fun loadFriendIds(userId: String) {
+        try {
+            // Friends I added
+            val iAdded = supabase.from("friendships")
+                .select(Columns.list("friend_id")) {
+                    filter { eq("user_id", userId) }
+                }
+                .decodeList<FriendRow>()
+                .map { it.friendId }
+
+            // Friends who added me
+            val addedMe = supabase.from("friendships")
+                .select(Columns.list("user_id")) {
+                    filter { eq("friend_id", userId) }
+                }
+                .decodeList<UserRow>()
+                .map { it.userId }
+
+            _friendIds.value = (iAdded + addedMe).distinct()
+            rebuildFriendsList()
+        } catch (e: Exception) {
+            Log.e(TAG, "loadFriendIds failed", e)
+        }
+    }
+
+    // ── Realtime subscription ──────────────────────────────────────────────────
+
+    private fun subscribeToUserChanges() {
         viewModelScope.launch {
             try {
-                // Add friend ID to current user's friend list
-                val currentUserRef = database.child("users").child(currentUserId)
-                val friendIds = _currentUserFriends.value.toMutableList()
-                if (!friendIds.contains(userId)) {
-                    friendIds.add(userId)
-                    currentUserRef.child("friendIds").setValue(friendIds)
+                // Unsubscribe and remove old channel before creating new one
+                usersChannel?.let {
+                    try { it.unsubscribe() } catch (_: Exception) {}
+                    supabase.realtime.removeChannel(it)
                 }
+                val channel = supabase.channel("public:users:${System.currentTimeMillis()}")
+                channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                    table = "users"
+                }.onEach { action ->
+                    if (action is PostgresAction.Update) {
+                        val record = action.record
+                        val updatedId = record["id"]?.jsonPrimitive?.contentOrNull ?: return@onEach
+                        val newHandRaised = record["hand_raised"]?.jsonPrimitive?.booleanOrNull ?: false
+                        val newSession = record["current_session"]?.jsonPrimitive?.contentOrNull ?: ""
 
-                // Add current user ID to friend's friend list (reciprocal)
-                val friendRef = database.child("users").child(userId)
-                friendRef.child("friendIds").get().addOnSuccessListener { snapshot ->
-                    val otherFriendIds = snapshot.children.mapNotNull { it.getValue(String::class.java) }.toMutableList()
-                    if (!otherFriendIds.contains(currentUserId)) {
-                        otherFriendIds.add(currentUserId)
-                        friendRef.child("friendIds").setValue(otherFriendIds)
+                        val handChanged = cachedHandRaised[updatedId] != newHandRaised
+                        val sessionChanged = cachedCurrentSession[updatedId] != newSession
+
+                        cachedHandRaised[updatedId] = newHandRaised
+                        cachedCurrentSession[updatedId] = newSession
+
+                        if (handChanged || sessionChanged) {
+                            Log.d(TAG, "relevant change for $updatedId: hand=$newHandRaised session=$newSession")
+                            loadAllUsers()
+                        }
+                        // Refresh current user's own data only if it's their row
+                        if (updatedId == _currentUserId.value) {
+                            _currentUserId.value?.let { loadCurrentUser(it) }
+                        }
+                    } else {
+                        // Insert or delete — always reload
+                        loadAllUsers()
+                        _currentUserId.value?.let { loadCurrentUser(it) }
                     }
-                }
+                }.launchIn(viewModelScope)
+                channel.subscribe()
+                usersChannel = channel
             } catch (e: Exception) {
-                _error.value = e.message
+                Log.e(TAG, "subscribeToUserChanges failed", e)
             }
         }
     }
 
-    fun isFriend(userId: String): Boolean {
-        return _currentUserFriends.value.contains(userId)
-    }
+    // ── Actions ────────────────────────────────────────────────────────────────
 
-    fun sendHighFive(friendId: String) {
+    fun addFriend(friendId: String) {
+        val currentId = _currentUserId.value ?: return
         viewModelScope.launch {
             try {
-                val currentUser = _currentUser.value ?: return@launch
-                
-                // Create a new high five entry
-                val highFiveId = UUID.randomUUID().toString()
-                val timestamp = System.currentTimeMillis()
-                
-                val highFive = mapOf(
-                    "id" to highFiveId,
-                    "initiatorId" to currentUser.id,
-                    "receiverId" to friendId,
-                    "initiatorTimestamp" to timestamp,
-                    "status" to "pending"
+                // Only insert current user's direction — can't insert on behalf of the other user
+                supabase.from("friendships").upsert(
+                    buildJsonObject {
+                        put("user_id", currentId)
+                        put("friend_id", friendId)
+                    }
                 )
-
-                // Save to Firebase
-                database.child("high_fives").child(highFiveId).setValue(highFive)
-
-                // Send notification
-                database.child("notifications").child(friendId).push().setValue(
-                    mapOf(
-                        "type" to "high_five_request",
-                        "senderId" to currentUser.id,
-                        "senderName" to currentUser.username,
-                        "timestamp" to timestamp
-                    )
-                )
-
-                // Set timeout to expire the high five if not completed
-                launch {
-                    delay(5000) // 5 seconds timeout
-                    database.child("high_fives").child(highFiveId).get()
-                        .addOnSuccessListener { snapshot ->
-                            val status = snapshot.child("status").getValue(String::class.java)
-                            if (status == "pending") {
-                                database.child("high_fives").child(highFiveId)
-                                    .updateChildren(mapOf("status" to "expired"))
-                            }
-                        }
-                }
-
+                loadFriendIds(currentId)
             } catch (e: Exception) {
-                Log.e(TAG, "Error sending high five", e)
-                _error.value = "Failed to send high five: ${e.message}"
+                Log.e(TAG, "addFriend failed", e)
+                _error.value = "Failed to add friend: ${e.message}"
+            }
+        }
+    }
+
+    fun isFriend(userId: String): Boolean = _friendIds.value.contains(userId)
+
+    // ── FCM token ──────────────────────────────────────────────────────────────
+
+    private fun storeFcmToken(userId: String) {
+        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+            viewModelScope.launch {
+                try {
+                    supabase.from("users").update({
+                        set("fcm_token", token)
+                    }) { filter { eq("id", userId) } }
+                    Log.d(TAG, "FCM token stored")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to store FCM token", e)
+                }
+            }
+        }
+    }
+
+    // ── Notifications ──────────────────────────────────────────────────────────
+
+    private fun notifyFriends(type: String) {
+        val recipientIds = _friendIds.value.ifEmpty { return }
+        val sender = _currentUser.value ?: return
+        viewModelScope.launch {
+            try {
+                supabase.functions.invoke(
+                    function = "send-notification",
+                    body = buildJsonObject {
+                        put("type", type)
+                        put("recipientIds", buildJsonArray { recipientIds.forEach { add(it) } })
+                        put("senderName", sender.username)
+                        put("senderId", sender.id)
+                    }
+                )
+                Log.d(TAG, "notifyFriends sent: type=$type recipients=${recipientIds.size}")
+            } catch (e: Exception) {
+                Log.e(TAG, "notifyFriends failed", e)
+            }
+        }
+    }
+
+    private fun notifyFriend(friendId: String) {
+        val sender = _currentUser.value ?: return
+        viewModelScope.launch {
+            try {
+                supabase.functions.invoke(
+                    function = "send-notification",
+                    body = buildJsonObject {
+                        put("type", "invite")
+                        put("recipientIds", buildJsonArray { add(friendId) })
+                        put("senderName", sender.username)
+                        put("senderId", sender.id)
+                    }
+                )
+                Log.d(TAG, "notifyFriend sent to $friendId")
+            } catch (e: Exception) {
+                Log.e(TAG, "notifyFriend failed", e)
+            }
+        }
+    }
+
+    fun inviteFriend(friendId: String) {
+        val currentId = _currentUserId.value ?: return
+        viewModelScope.launch {
+            try {
+                supabase.from("users").update({
+                    set("hand_raised", true)
+                    set("raised_hand_at", System.currentTimeMillis())
+                }) { filter { eq("id", currentId) } }
+                notifyFriend(friendId)
+            } catch (e: Exception) {
+                Log.e(TAG, "inviteFriend failed", e)
             }
         }
     }
 
     fun updateHandRaisedStatus(isRaised: Boolean) {
-        val currentUserId = _currentUserId.value ?: return
+        val currentId = _currentUserId.value ?: return
         viewModelScope.launch {
             try {
-                val updates = mapOf(
-                    "handRaised" to isRaised,
-                    "raisedHandTimestamp" to if (isRaised) ServerValue.TIMESTAMP else 0L
-                )
-                database.child("users").child(currentUserId).updateChildren(updates)
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "Error updating hand raised status", e)
-                        _error.value = "Failed to update hand raised status: ${e.message}"
-                    }
+                supabase.from("users").update({
+                    set("hand_raised", isRaised)
+                    set("raised_hand_at", if (isRaised) System.currentTimeMillis() else 0L)
+                }) {
+                    filter { eq("id", currentId) }
+                }
+                if (isRaised) notifyFriends("hand_raised")
             } catch (e: Exception) {
-                Log.e(TAG, "Error in updateHandRaisedStatus", e)
-                _error.value = e.message
+                Log.e(TAG, "updateHandRaisedStatus failed", e)
             }
         }
     }
@@ -307,112 +357,30 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 val currentUser = _currentUser.value ?: return@launch
-                Log.d(TAG, "Checking for existing high five session with partner: $partnerId")
-                
-                // First check if the partner has an active session
-                database.child("users").child(partnerId).child("currentHighFiveSession")
-                    .get()
-                    .addOnSuccessListener { snapshot ->
-                        val existingSessionId = snapshot.getValue(String::class.java)
-                        
-                        if (!existingSessionId.isNullOrEmpty()) {
-                            // Partner has an active session, join it
-                            Log.d(TAG, "Joining existing session: $existingSessionId")
-                            database.child("high_five_sessions").child(existingSessionId)
-                                .get()
-                                .addOnSuccessListener { sessionSnapshot ->
-                                    val session = sessionSnapshot.getValue(HighFiveSession::class.java)
-                                    if (session != null && session.partnerId.isEmpty()) {
-                                        // Update session with partner info
-                                        val updates = mapOf(
-                                            "partnerId" to currentUser.id,
-                                            "partnerUsername" to currentUser.username,
-                                            "lastUpdated" to ServerValue.TIMESTAMP
-                                        )
-                                        
-                                        // Update the session with partner info
-                                        database.child("high_five_sessions").child(existingSessionId)
-                                            .updateChildren(updates)
-                                            .addOnSuccessListener {
-                                                // Set currentHighFiveSession for the joining partner
-                                                database.child("users").child(currentUser.id)
-                                                    .child("currentHighFiveSession")
-                                                    .setValue(existingSessionId)
-                                                    .addOnSuccessListener {
-                                                        Log.d(TAG, "Successfully joined existing session")
-                                                    }
-                                                    .addOnFailureListener { e ->
-                                                        Log.e(TAG, "Failed to set currentHighFiveSession for partner", e)
-                                                        _error.value = "Failed to join session. Please try again."
-                                                    }
-                                            }
-                                            .addOnFailureListener { e ->
-                                                Log.e(TAG, "Failed to update session with partner info", e)
-                                                _error.value = "Failed to join session. Please try again."
-                                            }
-                                    } else {
-                                        _error.value = "Session is no longer available"
-                                    }
-                                }
-                                .addOnFailureListener { e ->
-                                    Log.e(TAG, "Failed to get session details", e)
-                                    _error.value = "Failed to join session. Please try again."
-                                }
-                        } else {
-                            // Partner doesn't have an active session, create a new one
-                            Log.d(TAG, "Creating new high five session")
-                            val sessionId = UUID.randomUUID().toString()
-                            val newSession = HighFiveSession(
-                                id = sessionId,
-                                initiatorId = currentUser.id,
-                                initiatorUsername = currentUser.username,
-                                partnerId = partnerId,
-                                partnerUsername = "",  // Will be updated when partner joins
-                                initiatorTimestamp = System.currentTimeMillis(),
-                                partnerTimestamp = 0L,
-                                lastUpdated = System.currentTimeMillis(),
-                                completed = false,
-                                quality = ""
-                            )
-                            
-                            // Set currentHighFiveSession for initiator
-                            database.child("users").child(currentUser.id)
-                                .child("currentHighFiveSession")
-                                .setValue(sessionId)
-                                .addOnSuccessListener {
-                                    // Create the session
-                                    database.child("high_five_sessions").child(sessionId)
-                                        .setValue(newSession)
-                                        .addOnSuccessListener {
-                                            Log.d(TAG, "Successfully created high five session")
-                                            
-                                            // Send notification to partner
-                                            database.child("notifications").child(partnerId).push().setValue(
-                                                mapOf(
-                                                    "type" to "high_five_request",
-                                                    "senderId" to currentUser.id,
-                                                    "senderName" to currentUser.username,
-                                                    "timestamp" to System.currentTimeMillis()
-                                                )
-                                            )
-                                        }
-                                        .addOnFailureListener { e ->
-                                            Log.e(TAG, "Failed to create high five session", e)
-                                            _error.value = "Failed to create session. Please try again."
-                                        }
-                                }
-                                .addOnFailureListener { e ->
-                                    Log.e(TAG, "Failed to set currentHighFiveSession for initiator", e)
-                                    _error.value = "Failed to create session. Please try again."
-                                }
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "Failed to check partner's currentHighFiveSession", e)
-                        _error.value = "Error connecting to partner. Please try again."
-                    }
+                val sessionId = UUID.randomUUID().toString()
+
+                val newSession = HighFiveSession(
+                    id = sessionId,
+                    initiatorId = currentUser.id,
+                    initiatorUsername = currentUser.username,
+                    partnerId = partnerId,
+                    partnerUsername = "",
+                    initiatorTimestamp = System.currentTimeMillis(),
+                    lastUpdated = System.currentTimeMillis()
+                )
+                supabase.from("high_five_sessions").insert(newSession)
+
+                // Mark current session on user row
+                supabase.from("users").update({
+                    set("current_session", sessionId)
+                }) {
+                    filter { eq("id", currentUser.id) }
+                }
+
+                // Push notification to the invited friend
+                notifyFriend(partnerId)
             } catch (e: Exception) {
-                Log.e(TAG, "Error in createHighFiveSession", e)
+                Log.e(TAG, "createHighFiveSession failed", e)
                 _error.value = "Error: ${e.message}"
             }
         }
@@ -420,6 +388,19 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
-        stopHeartbeat()
+        heartbeatJob?.cancel()
+        viewModelScope.launch {
+            try { usersChannel?.unsubscribe() } catch (_: Exception) {}
+        }
     }
-} 
+}
+
+@kotlinx.serialization.Serializable
+private data class FriendRow(
+    @kotlinx.serialization.SerialName("friend_id") val friendId: String
+)
+
+@kotlinx.serialization.Serializable
+private data class UserRow(
+    @kotlinx.serialization.SerialName("user_id") val userId: String
+)

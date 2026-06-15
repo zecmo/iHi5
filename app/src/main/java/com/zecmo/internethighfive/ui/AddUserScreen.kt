@@ -7,6 +7,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,7 +23,7 @@ import androidx.compose.ui.focus.focusRequester
 @Composable
 fun AddUserScreen(
     onNavigateBack: () -> Unit,
-    viewModel: AddUserViewModel = viewModel()
+    viewModel: AddUserViewModel = viewModel(factory = ViewModelProvider.AndroidViewModelFactory.getInstance(androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application))
 ) {
     var username by remember { mutableStateOf("") }
     var isError by remember { mutableStateOf(false) }
@@ -38,7 +39,7 @@ fun AddUserScreen(
 
     LaunchedEffect(isSuccess) {
         if (isSuccess) {
-            Toast.makeText(context, "User created successfully!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Friend added!", Toast.LENGTH_SHORT).show()
             onNavigateBack()
         }
     }
@@ -53,7 +54,7 @@ fun AddUserScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Add New User") },
+                title = { Text("Add Friend") },
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -74,7 +75,7 @@ fun AddUserScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "Create New User",
+                text = "Add a Friend",
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(bottom = 32.dp)
             )
@@ -101,7 +102,7 @@ fun AddUserScreen(
                 keyboardActions = KeyboardActions(
                     onDone = { 
                         if (username.isNotBlank()) {
-                            viewModel.addUser(username)
+                            viewModel.addFriendByUsername(username)
                         } else {
                             isError = true
                         }
@@ -117,7 +118,7 @@ fun AddUserScreen(
             Button(
                 onClick = { 
                     if (username.isNotBlank()) {
-                        viewModel.addUser(username)
+                        viewModel.addFriendByUsername(username)
                     } else {
                         isError = true
                     }
@@ -131,7 +132,7 @@ fun AddUserScreen(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
-                    Text("Create User")
+                    Text("Add Friend")
                 }
             }
         }

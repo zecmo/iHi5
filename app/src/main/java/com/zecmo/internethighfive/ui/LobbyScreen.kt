@@ -1,7 +1,8 @@
 package com.zecmo.internethighfive.ui
 
-import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -17,10 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.platform.LocalContext
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.R
 
@@ -32,10 +31,11 @@ fun LobbyScreen(
     onNavigateToHighFive: (String) -> Unit,
     viewModel: FriendsViewModel = viewModel()
 ) {
-    val friends by viewModel.friends.collectAsState()
+    val friends by viewModel.friends.collectAsState()       // actual friends only
     val currentUser by viewModel.currentUser.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val handRaised = currentUser?.handRaised == true
 
     Scaffold(
         topBar = {
@@ -98,25 +98,25 @@ fun LobbyScreen(
                                 .padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            val context = LocalContext.current
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(R.drawable.hi5_logo)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = "High Five Logo",
+                            Image(
+                                painter = painterResource(id = R.drawable.hi5_logo),
+                                contentDescription = "Raise Hand",
                                 modifier = Modifier
                                     .size(150.dp)
                                     .padding(bottom = 16.dp)
-                                    .clickable { 
-                                        // Create a session with a test user when clicking the logo
-                                        viewModel.createHighFiveSession("test_user_id")
-                                        onNavigateToHighFive("test_user_id")
+                                    .alpha(if (handRaised) 1f else 0.5f)
+                                    .clickable {
+                                        if (!handRaised) {
+                                            viewModel.updateHandRaisedStatus(true)
+                                            onNavigateToHighFive("open")
+                                        } else {
+                                            viewModel.updateHandRaisedStatus(false)
+                                        }
                                     },
                                 contentScale = ContentScale.Fit
                             )
                             Text(
-                                text = "Raise your hand",
+                                text = if (handRaised) "Hand raised! 🙋" else "Tap to raise your hand",
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center
                             )
@@ -124,12 +124,7 @@ fun LobbyScreen(
                     }
                 }
 
-                // Friends List - Only show users who are in the current user's friendIds list
-                val userFriends = friends.filter { friend -> 
-                    currentUser?.friendIds?.contains(friend.id) == true
-                }
-                
-                if (userFriends.isEmpty()) {
+                if (friends.isEmpty()) {
                     item {
                         Column(
                             modifier = Modifier
@@ -158,16 +153,21 @@ fun LobbyScreen(
                     }
                 } else {
                     items(
-                        items = userFriends,
+                        items = friends,
                         key = { it.id }
                     ) { friend ->
                         FriendCard(
                             user = friend,
-                            onHighFiveRequest = { 
-                                // Create a session with the friend before navigating
-                                viewModel.createHighFiveSession(friend.id)
+                            onHighFiveRequest = {
+                            if (friend.hasActiveHighFive) {
+                                // Friend already raised hand — join their open session
                                 onNavigateToHighFive(friend.id)
+                            } else {
+                                // Invite: raise our hand, notify that friend, wait for them to join
+                                viewModel.inviteFriend(friend.id)
+                                onNavigateToHighFive("open")
                             }
+                        }
                         )
                     }
                 }
@@ -215,7 +215,7 @@ private fun FriendCard(
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = if (user.isOnline) "Active now" else "Last active: ${formatTimestamp(user.lastLoginTimestamp)}",
+                    text = if (user.isOnline) "Active now" else "Last active: ${formatTimestamp(user.lastLoginAt)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (user.isOnline) MaterialTheme.colorScheme.primary 
                            else MaterialTheme.colorScheme.onSurfaceVariant
