@@ -16,6 +16,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.zecmo.internethighfive.MainActivity
 import com.zecmo.internethighfive.R
+import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -59,34 +60,26 @@ class FirebaseMessagingService : FirebaseMessagingService() {
         Log.d(TAG, "Message TTL: ${message.ttl}")
         
         message.data.let { data ->
+            val senderName = data["senderName"] ?: "Someone"
+            val senderId   = data["senderId"]   ?: ""
             when (data["type"]) {
-                "high_five_request" -> {
-                    val senderName = data["senderName"] ?: "Someone"
-                    Log.d(TAG, "Received high five request from: $senderName")
+                "hand_raised" -> {
+                    Log.d(TAG, "hand_raised from $senderName")
                     showNotification(
-                        "New High Five Request!",
-                        "$senderName wants to high five with you!"
+                        title    = "✋ Hand Raised!",
+                        message  = "$senderName raised their hand — go high five them!",
+                        senderId = senderId
                     )
                 }
-                "high_five_ready" -> {
-                    val partnerName = data["partnerName"] ?: "Your partner"
-                    Log.d(TAG, "Partner ready notification from: $partnerName")
+                "invite" -> {
+                    Log.d(TAG, "invite from $senderName")
                     showNotification(
-                        "Ready to High Five!",
-                        "$partnerName is ready to high five!"
+                        title    = "🙋 High Five Invite!",
+                        message  = "$senderName wants to high five with you!",
+                        senderId = senderId
                     )
                 }
-                "high_five_complete" -> {
-                    val quality = data["quality"]?.toFloatOrNull()?.times(100) ?: 0f
-                    Log.d(TAG, "High five completed with quality: $quality%")
-                    showNotification(
-                        "High Five Complete!",
-                        "You just completed a high five with ${data["partnerName"]}! Quality: $quality%"
-                    )
-                }
-                else -> {
-                    Log.w(TAG, "Unknown notification type: ${data["type"]}")
-                }
+                else -> Log.w(TAG, "Unknown notification type: ${data["type"]}")
             }
         }
     }
@@ -101,14 +94,17 @@ class FirebaseMessagingService : FirebaseMessagingService() {
                 val userId = preferences[USER_ID_KEY]
                 
                 if (userId != null) {
-                    val database = com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                    database.child("users").child(userId).child("fcmToken").setValue(token)
-                        .addOnSuccessListener {
-                            Log.d(TAG, "FCM token successfully stored in database")
+                    try {
+                        val supabase = com.zecmo.internethighfive.SupabaseClient.client
+                        supabase.from("users").update({
+                            set("fcm_token", token)
+                        }) {
+                            filter { eq("id", userId) }
                         }
-                        .addOnFailureListener { e ->
-                            Log.e(TAG, "Failed to store FCM token in database", e)
-                        }
+                        Log.d(TAG, "FCM token stored in Supabase")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to store FCM token in Supabase", e)
+                    }
                 } else {
                     Log.w(TAG, "Cannot store FCM token: User ID not found in DataStore")
                 }
@@ -139,11 +135,12 @@ class FirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun showNotification(title: String, message: String) {
+    private fun showNotification(title: String, message: String, senderId: String = "") {
         try {
-            Log.d(TAG, "Showing notification - Title: $title, Message: $message")
+            Log.d(TAG, "Showing notification - Title: $title, Message: $message, senderId: $senderId")
             val intent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                if (senderId.isNotEmpty()) putExtra("sender_id", senderId)
             }
             
             val pendingIntent = PendingIntent.getActivity(

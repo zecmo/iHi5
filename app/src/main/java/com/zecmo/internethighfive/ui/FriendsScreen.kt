@@ -1,11 +1,9 @@
 package com.zecmo.internethighfive.ui
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,13 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.zecmo.internethighfive.data.User
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,52 +23,48 @@ fun FriendsScreen(
     onNavigateToHighFive: (String) -> Unit,
     viewModel: FriendsViewModel = viewModel()
 ) {
-    val users by viewModel.friends.collectAsState()
-    val currentUserFriends by viewModel.currentUserFriends.collectAsState()
+    val allUsers by viewModel.allUsers.collectAsState()
+    val friendIds by viewModel.friendIds.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+
+    // Non-friends only (self already filtered in VM)
+    val nonFriends = allUsers.filter { it.id !in friendIds }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
-                    Text(
-                        text = "Find Fivers",
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
-                    )
-                },
+                title = { Text("Find Fivers", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
         }
     ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center)
-                )
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (nonFriends.isEmpty()) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("No new fivers found", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+                    Text("Everyone you know is already a friend!", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                }
             } else {
-                val nonFriends = users.filter { user -> !currentUserFriends.contains(user.id) }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(
-                        items = nonFriends,
-                        key = { it.id }
-                    ) { user ->
-                        SimpleUserCard(
-                            username = user.username,
-                            isOnline = user.lastLoginTimestamp > System.currentTimeMillis() - 5000,
-                            onAddFiver = { onNavigateToHighFive(user.id) }
+                    items(nonFriends, key = { it.id }) { user ->
+                        FindFiversCard(
+                            user = user,
+                            onAddFriend = { viewModel.addFriend(user.id) },
+                            onHighFive = { onNavigateToHighFive(user.id) }
                         )
                     }
                 }
@@ -85,62 +74,41 @@ fun FriendsScreen(
 }
 
 @Composable
-private fun SimpleUserCard(
-    username: String,
-    isOnline: Boolean,
-    onAddFiver: () -> Unit
+private fun FindFiversCard(
+    user: User,
+    onAddFriend: () -> Unit,
+    onHighFive: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
+    Card(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Simple online indicator
-                Surface(
-                    modifier = Modifier.size(8.dp),
-                    shape = CircleShape,
-                    color = if (isOnline) MaterialTheme.colorScheme.primary 
-                           else MaterialTheme.colorScheme.surfaceVariant
-                ) {}
-                
+            // Online dot
+            Surface(
+                modifier = Modifier.size(10.dp),
+                shape = CircleShape,
+                color = if (user.isOnline) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant
+            ) {}
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(user.username, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = username,
-                    style = MaterialTheme.typography.titleMedium
+                    if (user.isOnline) "Online" else "Offline",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            
-            Button(
-                onClick = onAddFiver,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Text("High Five!")
+
+            // If hand raised, show Join button too
+            if (user.hasActiveHighFive) {
+                OutlinedButton(onClick = onHighFive) { Text("Join! 🙋") }
+                Spacer(Modifier.width(4.dp))
             }
+
+            Button(onClick = onAddFriend) { Text("Add Friend") }
         }
     }
 }
-
-private fun formatTimestamp(timestamp: Long): String {
-    if (timestamp == 0L) return "Never"
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    return when {
-        diff < 1000 * 60 -> "Just now"
-        diff < 1000 * 60 * 60 -> "${diff / (1000 * 60)} minutes ago"
-        diff < 1000 * 60 * 60 * 24 -> "${diff / (1000 * 60 * 60)} hours ago"
-        else -> "${diff / (1000 * 60 * 60 * 24)} days ago"
-    }
-} 
