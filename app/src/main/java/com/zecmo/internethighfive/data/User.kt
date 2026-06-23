@@ -27,4 +27,7 @@ data class User(
 
     val hasActiveHighFive: Boolean
         get() = handRaised && (System.currentTimeMillis() - raisedHandAt < HAND_RAISED_THRESHOLD)
+
+    val isInSession: Boolean
+        get() = currentSession.isNotEmpty()
 }

@@ -39,6 +39,7 @@ fun LobbyScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val handRaised = currentUser?.handRaised == true
+    val inSession = currentUser?.isInSession == true
     var messageText by remember { mutableStateOf("") }
     var navigating by remember { mutableStateOf(false) }
     val placeholders = remember {
@@ -147,7 +148,11 @@ fun LobbyScreen(
                                 contentScale = ContentScale.Fit
                             )
                             Text(
-                                text = if (handRaised) "Hand raised! 🙋" else "Tap to raise your hand",
+                                text = when {
+                                    inSession -> "High Fiving! 🙌"
+                                    handRaised -> "Hand raised! 🙋"
+                                    else -> "Tap to raise your hand"
+                                },
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center
                             )
@@ -257,13 +262,19 @@ private fun FriendCard(
             Button(
                 onClick = onHighFiveRequest,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (user.hasActiveHighFive) 
-                        Color(0xFF4CAF50)  // Material Design Green 500
-                        else MaterialTheme.colorScheme.primary
+                    containerColor = when {
+                        user.isInSession -> Color(0xFFFFA000)       // Amber
+                        user.hasActiveHighFive -> Color(0xFF4CAF50) // Green
+                        else -> MaterialTheme.colorScheme.primary
+                    }
                 ),
-                enabled = true
+                enabled = !user.isInSession
             ) {
-                Text(if (user.hasActiveHighFive) "Hand Raised!" else "High Five!")
+                Text(when {
+                    user.isInSession -> "High Fiving! 🙌"
+                    user.hasActiveHighFive -> "Hand Raised! ✋"
+                    else -> "High Five!"
+                })
             }
         }
     }

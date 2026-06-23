@@ -220,9 +220,18 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                                 )
                             }
                         }
-                        // Partner just joined — fire the local countdown signal on the initiator
+                        // Partner just joined — set current_session on initiator now so lobby
+                        // shows "High Fiving!" only once both players are connected.
                         previous?.partnerId.isNullOrEmpty() && !updated.partnerId.isNullOrEmpty()
                             && _currentUser.value?.id == updated.initiatorId -> {
+                            val userId = _currentUser.value?.id ?: return@onEach
+                            try {
+                                supabase.from("users").update({
+                                    set("current_session", updated.id)
+                                }) { filter { eq("id", userId) } }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "failed to set current_session on initiator", e)
+                            }
                             _bothConnectedEvent.value = 1
                         }
                         // Both taps recorded — score them
@@ -354,9 +363,6 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                     message = message
                 )
                 supabase.from("high_five_sessions").insert(session)
-                supabase.from("users").update({
-                    set("current_session", sessionId)
-                }) { filter { eq("id", currentUser.id) } }
                 _highFiveSession.value = session
                 _highFiveState.value = HighFiveState.WaitingForPartner
                 subscribeToSession(sessionId)
