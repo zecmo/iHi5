@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -22,6 +23,7 @@ fun LoginScreen(
     var username by remember { mutableStateOf("") }
     var isError by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val authState by authViewModel.authState.collectAsState()
     val usernameStatus by authViewModel.usernameStatus.collectAsState()
@@ -52,11 +54,11 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = username,
-            onValueChange = { 
-                val cleanInput = it.replace("\n", "")
+            onValueChange = {
+                val cleanInput = it.replace("\n", "").trimStart()
                 username = cleanInput
                 isError = false
-                authViewModel.checkUsername(cleanInput)
+                authViewModel.checkUsername(cleanInput.trim())
             },
             label = { Text("Username") },
             isError = isError,
@@ -83,9 +85,11 @@ fun LoginScreen(
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(
-                onDone = { 
-                    if (username.isNotBlank()) {
-                        authViewModel.login(username)
+                onDone = {
+                    val trimmed = username.trim()
+                    if (trimmed.isNotBlank()) {
+                        keyboardController?.hide()
+                        authViewModel.login(trimmed)
                     } else {
                         isError = true
                     }
@@ -97,9 +101,11 @@ fun LoginScreen(
         )
 
         Button(
-            onClick = { 
-                if (username.isNotBlank()) {
-                    authViewModel.login(username)
+            onClick = {
+                val trimmed = username.trim()
+                if (trimmed.isNotBlank()) {
+                    keyboardController?.hide()
+                    authViewModel.login(trimmed)
                 } else {
                     isError = true
                 }
