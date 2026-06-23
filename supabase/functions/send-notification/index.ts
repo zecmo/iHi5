@@ -97,13 +97,9 @@ Deno.serve(async (req) => {
 
     const accessToken = await getAccessToken(sa)
 
-    const notif = type === 'hand_raised'
-      ? { title: '✋ Hand Raised!',    body: `${senderName} raised their hand — go high five them!` }
-      : { title: '🙋 High Five Invite!', body: `${senderName} wants to high five with you!` }
-
     const results = await Promise.allSettled(
-      users.map(({ fcm_token }) =>
-        fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+      users.map(async ({ fcm_token }) => {
+        const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
           method:  'POST',
           headers: {
             'Authorization': `Bearer ${accessToken}`,
@@ -112,21 +108,24 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             message: {
               token: fcm_token,
-              notification: notif,
               data: { type, senderId, senderName },
-              android: {
-                  priority: 'high',
-                  notification: { channel_id: 'high_five_channel' },
-                },
+              android: { priority: 'high' },
             },
           }),
-        }),
-      ),
+        })
+        const body = await res.json()
+        if (!res.ok) {
+          console.error(`FCM error ${res.status}:`, JSON.stringify(body))
+          throw new Error(`FCM ${res.status}: ${JSON.stringify(body)}`)
+        }
+        return body
+      }),
     )
 
     const sent = results.filter(r => r.status === 'fulfilled').length
-    console.log(`send-notification: type=${type} sent=${sent}/${users.length}`)
-    return new Response(JSON.stringify({ sent }), { status: 200 })
+    const errors = results.filter(r => r.status === 'rejected').map(r => (r as PromiseRejectedResult).reason?.message)
+    console.log(`send-notification: type=${type} sent=${sent}/${users.length} errors=${JSON.stringify(errors)}`)
+    return new Response(JSON.stringify({ sent, errors }), { status: 200 })
 
   } catch (err) {
     console.error('send-notification error:', err)

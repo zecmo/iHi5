@@ -27,10 +27,21 @@ private val Context.dataStore by preferencesDataStore(name = "user_preferences")
 class FirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val TAG = "FCMService"
-        private const val CHANNEL_ID = "high_five_channel"
+        const val CHANNEL_ID = "high_five_channel"
         private const val CHANNEL_NAME = "High Fives"
         private const val NOTIFICATION_ID = 1
         private val USER_ID_KEY = stringPreferencesKey("user_id")
+
+        fun createChannelStatic(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Notifications for high five events"
+                    enableVibration(true)
+                }
+                (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                    .createNotificationChannel(channel)
+            }
+        }
     }
 
     override fun onCreate() {
@@ -160,7 +171,7 @@ class FirebaseMessagingService : FirebaseMessagingService() {
                 .build()
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(NOTIFICATION_ID, notification)
+            notificationManager.notify(System.currentTimeMillis().toInt(), notification)
             Log.d(TAG, "Notification shown successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error showing notification", e)

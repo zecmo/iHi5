@@ -13,7 +13,8 @@ create table if not exists users (
     last_login_at    bigint default 0,
     hand_raised      boolean default false,
     raised_hand_at   bigint default 0,
-    current_session  text default ''
+    current_session  text default '',
+    fcm_token        text default ''
 );
 
 create index if not exists users_username_idx on users (username);
