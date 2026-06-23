@@ -129,8 +129,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Single effect handles auth transitions AND notification deep links
-                LaunchedEffect(authState) {
+                // Single effect handles auth transitions AND notification deep links.
+                // The notification intent uses FLAG_ACTIVITY_CLEAR_TASK so the activity is always
+                // recreated on tap — pendingSenderId is set in onCreate, then consumed here once
+                // auth confirms we're logged in.
+                LaunchedEffect(authState, pendingSenderId.value) {
                     when (authState) {
                         is AuthState.LoggedOut -> navController.navigate(Screen.Login.route) {
                             popUpTo(0) { inclusive = true }
@@ -142,7 +145,7 @@ class MainActivity : ComponentActivity() {
                                     popUpTo(Screen.Login.route) { inclusive = true }
                                 }
                             }
-                            // If opened from a notification, go straight to high five
+                            // If opened from a notification, go straight to HighFive
                             pendingSenderId.value?.let { sender ->
                                 navController.navigate("${Screen.HighFive.route}/$sender") {
                                     popUpTo(Screen.Lobby.route) { inclusive = false }
@@ -151,17 +154,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         else -> {}
-                    }
-                }
-
-                // Handle notification tap when app was already running in background
-                val senderId = pendingSenderId.value
-                LaunchedEffect(senderId) {
-                    if (senderId != null && authState is AuthState.LoggedIn) {
-                        navController.navigate("${Screen.HighFive.route}/$senderId") {
-                            popUpTo(Screen.Lobby.route) { inclusive = false }
-                        }
-                        pendingSenderId.value = null
                     }
                 }
             }

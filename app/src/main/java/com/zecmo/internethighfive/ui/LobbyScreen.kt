@@ -39,6 +39,7 @@ fun LobbyScreen(
     val error by viewModel.error.collectAsState()
     val handRaised = currentUser?.handRaised == true
     var messageText by remember { mutableStateOf("") }
+    var navigating by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -109,10 +110,11 @@ fun LobbyScreen(
                                     .padding(bottom = 16.dp)
                                     .alpha(if (handRaised) 1f else 0.5f)
                                     .clickable {
-                                        if (!handRaised) {
+                                        if (!handRaised && !navigating) {
+                                            navigating = true
                                             viewModel.updateHandRaisedStatus(true, messageText)
                                             onNavigateToHighFive("open:$messageText")
-                                        } else {
+                                        } else if (handRaised) {
                                             viewModel.updateHandRaisedStatus(false)
                                         }
                                     },
@@ -172,13 +174,14 @@ fun LobbyScreen(
                         FriendCard(
                             user = friend,
                             onHighFiveRequest = {
-                                if (friend.hasActiveHighFive) {
-                                    onNavigateToHighFive(friend.id)
-                                } else {
-                                    viewModel.inviteFriend(friend.id)
-                                    // Pass "invite:<friendId>:<friendName>" so HighFiveViewModel
-                                    // can notify AFTER the session is created in the DB.
-                                    onNavigateToHighFive("invite:${friend.id}:${friend.username}:$messageText")
+                                if (!navigating) {
+                                    navigating = true
+                                    if (friend.hasActiveHighFive) {
+                                        onNavigateToHighFive(friend.id)
+                                    } else {
+                                        viewModel.inviteFriend(friend.id)
+                                        onNavigateToHighFive("invite:${friend.id}:${friend.username}:$messageText")
+                                    }
                                 }
                             }
                         )

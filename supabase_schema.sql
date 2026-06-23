@@ -156,3 +156,18 @@ alter publication supabase_realtime add table users;
 alter publication supabase_realtime add table high_five_sessions;
 alter publication supabase_realtime add table high_fives;
 alter publication supabase_realtime add table notifications;
+
+-- ────────────────────────────────────────────────────────────
+-- MIGRATIONS
+-- Safe to re-run on an existing DB. Add new column/policy
+-- changes here instead of modifying the CREATE TABLE blocks
+-- above (which only apply on first-time setup due to IF NOT EXISTS).
+-- ────────────────────────────────────────────────────────────
+
+-- Added: session invite message
+alter table high_five_sessions
+    add column if not exists message text default '';
+
+-- Remove stale column if it exists from an earlier schema iteration
+alter table high_five_sessions
+    drop column if exists reason;

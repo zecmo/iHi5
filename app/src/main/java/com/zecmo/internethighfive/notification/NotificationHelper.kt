@@ -48,7 +48,7 @@ object NotificationHelper {
         try {
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                putExtra("high_five_sender_id", senderId)
+                putExtra("sender_id", senderId)
             }
             
             val pendingIntent = PendingIntent.getActivity(

@@ -50,16 +50,10 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     private val _highFiveSession = MutableStateFlow<HighFiveSession?>(null)
     val highFiveSession: StateFlow<HighFiveSession?> = _highFiveSession.asStateFlow()
 
-    private val _touchCount = MutableStateFlow(0)
-    val touchCount: StateFlow<Int> = _touchCount.asStateFlow()
-
     // Incremented to 1 the moment both players are confirmed connected.
     // The screen uses this as a LaunchedEffect key to start the countdown.
     private val _bothConnectedEvent = MutableStateFlow(0)
     val bothConnectedEvent: StateFlow<Int> = _bothConnectedEvent.asStateFlow()
-
-    private val _inAppNotification = MutableStateFlow<String?>(null)
-    val inAppNotification: StateFlow<String?> = _inAppNotification.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -83,7 +77,6 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     fun onEnterHighFiveScreen() {
         _highFiveState.value = HighFiveState.Idle
-        _touchCount.value = 0
         viewModelScope.launch {
             val userId = _currentUser.value?.id ?: return@launch
             try {
@@ -134,36 +127,9 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     // ── Session management ───────────────────────���─────────────────────────────
 
-    fun createHighFiveSession(partnerId: String) {
-        viewModelScope.launch {
-            val currentUser = _currentUser.value ?: return@launch
-            try {
-                val sessionId = UUID.randomUUID().toString()
-                val session = HighFiveSession(
-                    id = sessionId,
-                    initiatorId = currentUser.id,
-                    initiatorUsername = currentUser.username,
-                    partnerId = partnerId,
-                    initiatorTimestamp = 0L,
-                    lastUpdated = System.currentTimeMillis()
-                )
-                supabase.from("high_five_sessions").insert(session)
-                supabase.from("users").update({
-                    set("current_session", sessionId)
-                }) {
-                    filter { eq("id", currentUser.id) }
-                }
-                _highFiveSession.value = session
-                _highFiveState.value = HighFiveState.WaitingForPartner
-                subscribeToSession(sessionId)
-            } catch (e: Exception) {
-                Log.e(TAG, "createHighFiveSession failed", e)
-                _error.value = "Failed to create session: ${e.message}"
-            }
-        }
-    }
-
     fun connectToUser(partnerId: String) {
+        if (_highFiveSession.value != null) return
+        _highFiveState.value = HighFiveState.Idle
         viewModelScope.launch {
             val currentUser = _currentUser.value ?: return@launch
             Log.d(TAG, "connectToUser: currentUser=${currentUser.id} partnerId=$partnerId")
@@ -372,6 +338,7 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     // Open session — raised hand. If invitePartnerId is set, notify that friend after session creation.
     fun openSession(message: String = "", invitePartnerId: String? = null, inviteReceiverName: String? = null) {
+        if (_highFiveSession.value != null) return
         viewModelScope.launch {
             val currentUser = _currentUser.value ?: return@launch
             try {
@@ -426,9 +393,6 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     fun readyToTap() {
         _highFiveState.value = HighFiveState.Idle
     }
-
-    fun incrementTouchCount() { _touchCount.value++ }
-    fun dismissNotification() { _inAppNotification.value = null }
 
     private suspend fun cleanupChannels() {
         try { sessionChannel?.unsubscribe() } catch (_: Exception) {}

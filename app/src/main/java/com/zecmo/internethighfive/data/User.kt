@@ -18,7 +18,7 @@ data class User(
     val currentSession: String = ""
 ) {
     companion object {
-        const val ONLINE_THRESHOLD = 15_000L        // 15 seconds (heartbeat every 5s)
+        const val ONLINE_THRESHOLD = 60_000L        // 60 seconds — tolerates device clock skew
         const val HAND_RAISED_THRESHOLD = 300_000L  // 5 minutes
     }
 

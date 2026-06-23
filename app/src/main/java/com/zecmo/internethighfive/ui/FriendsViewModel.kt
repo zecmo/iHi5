@@ -32,6 +32,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 class FriendsViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
@@ -79,6 +80,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
     // so we compare against this to avoid reloading on irrelevant changes.
     private val cachedHandRaised = mutableMapOf<String, Boolean>()
     private val cachedCurrentSession = mutableMapOf<String, String>()
+    private val cachedLastLoginAt = mutableMapOf<String, Long>()
 
     init {
         viewModelScope.launch {
@@ -158,6 +160,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                     users.forEach { u ->
                         cachedHandRaised[u.id] = u.handRaised
                         cachedCurrentSession[u.id] = u.currentSession
+                        cachedLastLoginAt[u.id] = u.lastLoginAt
                     }
                 }
             } catch (e: Exception) {
@@ -182,6 +185,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 users.forEach { u ->
                     cachedHandRaised[u.id] = u.handRaised
                     cachedCurrentSession[u.id] = u.currentSession
+                    cachedLastLoginAt[u.id] = u.lastLoginAt
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadAllUsers failed", e)
@@ -233,15 +237,21 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                         val updatedId = record["id"]?.jsonPrimitive?.contentOrNull ?: return@onEach
                         val newHandRaised = record["hand_raised"]?.jsonPrimitive?.booleanOrNull ?: false
                         val newSession = record["current_session"]?.jsonPrimitive?.contentOrNull ?: ""
+                        val newLastLoginAt = record["last_login_at"]?.jsonPrimitive?.longOrNull ?: 0L
 
                         val handChanged = cachedHandRaised[updatedId] != newHandRaised
                         val sessionChanged = cachedCurrentSession[updatedId] != newSession
+                        val wasOnline = cachedLastLoginAt[updatedId]
+                            ?.let { System.currentTimeMillis() - it < User.ONLINE_THRESHOLD } ?: false
+                        val isNowOnline = System.currentTimeMillis() - newLastLoginAt < User.ONLINE_THRESHOLD
+                        val onlineStatusChanged = wasOnline != isNowOnline
 
                         cachedHandRaised[updatedId] = newHandRaised
                         cachedCurrentSession[updatedId] = newSession
+                        cachedLastLoginAt[updatedId] = newLastLoginAt
 
-                        if (handChanged || sessionChanged) {
-                            Log.d(TAG, "relevant change for $updatedId: hand=$newHandRaised session=$newSession")
+                        if (handChanged || sessionChanged || onlineStatusChanged) {
+                            Log.d(TAG, "relevant change for $updatedId: hand=$newHandRaised session=$newSession online=$isNowOnline")
                             loadAllUsers()
                         }
                         // Refresh current user's own data only if it's their row
@@ -354,28 +364,6 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 Log.d(TAG, "notifyFriends sent: type=$type recipients=${recipientIds.size}")
             } catch (e: Exception) {
                 Log.e(TAG, "notifyFriends failed", e)
-            }
-        }
-    }
-
-    private fun notifyFriend(friendId: String, message: String = "", receiverName: String = "") {
-        val sender = _currentUser.value ?: return
-        viewModelScope.launch {
-            try {
-                supabase.functions.invoke(
-                    function = "send-notification",
-                    body = buildJsonObject {
-                        put("type", "invite")
-                        put("recipientIds", buildJsonArray { add(friendId) })
-                        put("senderName", sender.username)
-                        put("senderId", sender.id)
-                        put("message", message)
-                        put("receiverName", receiverName)
-                    }
-                )
-                Log.d(TAG, "notifyFriend sent to $friendId")
-            } catch (e: Exception) {
-                Log.e(TAG, "notifyFriend failed", e)
             }
         }
     }

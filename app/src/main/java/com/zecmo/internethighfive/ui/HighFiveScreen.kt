@@ -110,22 +110,25 @@ fun HighFiveScreen(
     LaunchedEffect(currentUser) {
         if (currentUser != null && !sessionStarted) {
             sessionStarted = true
-            viewModel.onEnterHighFiveScreen()
             when {
                 partnerId.startsWith("open:") -> {
                     val message = partnerId.removePrefix("open:")
+                    viewModel.onEnterHighFiveScreen()
                     viewModel.openSession(message = message)
                 }
-                partnerId == "open" -> viewModel.openSession()
                 partnerId.startsWith("invite:") -> {
                     // format: "invite:<friendId>:<friendName>:<message>"
                     val parts = partnerId.removePrefix("invite:").split(":", limit = 3)
                     val friendId = parts.getOrElse(0) { "" }
                     val friendName = parts.getOrElse(1) { "" }
                     val message = parts.getOrElse(2) { "" }
+                    viewModel.onEnterHighFiveScreen()
                     viewModel.openSession(message = message, invitePartnerId = friendId, inviteReceiverName = friendName)
                 }
-                else -> viewModel.connectToUser(partnerId)
+                else -> {
+                    // Joining someone else's session — don't raise our own hand
+                    viewModel.connectToUser(partnerId)
+                }
             }
         }
     }
@@ -209,7 +212,6 @@ fun HighFiveScreen(
                         currentForce = currentForce,
                         onTap = {
                             viewModel.initiateHighFive()
-                            viewModel.incrementTouchCount()
                         }
                     )
                 }
