@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
             InternetHighFiveTheme {
                 val navController = rememberNavController()
                 val authViewModel: AuthViewModel = viewModel()
+                val friendsViewModel: FriendsViewModel = viewModel()
                 val authState by authViewModel.authState.collectAsState()
 
                 NavHost(navController = navController, startDestination = Screen.Login.route) {
@@ -85,7 +86,8 @@ class MainActivity : ComponentActivity() {
                             onNavigateToFriends = { navController.navigate(Screen.Friends.route) },
                             onNavigateToHighFive = { userId ->
                                 navController.navigate("${Screen.HighFive.route}/$userId")
-                            }
+                            },
+                            viewModel = friendsViewModel
                         )
                     }
                     composable(
@@ -104,7 +106,8 @@ class MainActivity : ComponentActivity() {
                             onNavigateToAddUser = { navController.navigate(Screen.AddUser.route) },
                             onNavigateToHighFive = { userId ->
                                 navController.navigate("${Screen.HighFive.route}/$userId")
-                            }
+                            },
+                            viewModel = friendsViewModel
                         )
                     }
                     composable(Screen.Profile.route) {
@@ -119,7 +122,10 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable(Screen.AddUser.route) {
-                        AddUserScreen(onNavigateBack = { navController.popBackStack() })
+                        AddUserScreen(
+                            onNavigateBack = { navController.popBackStack() },
+                            viewModel = friendsViewModel
+                        )
                     }
                 }
 

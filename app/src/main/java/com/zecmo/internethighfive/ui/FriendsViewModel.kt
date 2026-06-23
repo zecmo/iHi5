@@ -5,17 +5,17 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.zecmo.internethighfive.SupabaseClient
-import com.zecmo.internethighfive.data.HighFiveSession
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.data.UserPreferences
 import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,8 +33,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
-import java.util.UUID
-
 class FriendsViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val TAG = "FriendsViewModel"
@@ -55,11 +53,17 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
     private val _friendIds = MutableStateFlow<List<String>>(emptyList())
     val friendIds: StateFlow<List<String>> = _friendIds.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(false)
+    private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    private val _addFriendLoading = MutableStateFlow(false)
+    val addFriendLoading: StateFlow<Boolean> = _addFriendLoading.asStateFlow()
+
+    private val _addFriendSuccess = MutableStateFlow(false)
+    val addFriendSuccess: StateFlow<Boolean> = _addFriendSuccess.asStateFlow()
 
     private val _currentUserId = MutableStateFlow<String?>(null)
     val currentUserId: StateFlow<String?> = _currentUserId.asStateFlow()
@@ -93,9 +97,8 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                     storeFcmToken(credentials.id)
                     startHeartbeat(credentials.id)
                     loadCurrentUser(credentials.id)
-                    loadAllUsers()
+                    loadData()
                     subscribeToUserChanges()
-                    loadFriendIds(credentials.id)
                 }
             }
         }
@@ -134,28 +137,54 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun loadAllUsers() {
+    // Loads users + friend IDs concurrently; shows spinner until both complete.
+    private fun loadData() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
+                val selfId = _currentUserId.value ?: return@launch
+                coroutineScope {
+                    val usersDeferred = async {
+                        supabase.from("users").select().decodeList<User>()
+                            .filter { it.id != selfId }
+                            .sortedByDescending { it.isOnline }
+                    }
+                    val friendIdsDeferred = async { fetchFriendIds(selfId) }
+                    val users = usersDeferred.await()
+                    val ids = friendIdsDeferred.await()
+                    _allUsers.value = users
+                    _friendIds.value = ids
+                    rebuildFriendsList(users)
+                    users.forEach { u ->
+                        cachedHandRaised[u.id] = u.handRaised
+                        cachedCurrentSession[u.id] = u.currentSession
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "loadData failed", e)
+                _error.value = "Failed to load: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    // Silent refresh triggered by realtime — no spinner.
+    private fun loadAllUsers() {
+        viewModelScope.launch {
+            try {
                 val selfId = _currentUserId.value
-                val users = supabase.from("users")
-                    .select()
-                    .decodeList<User>()
-                    .filter { it.id != selfId }          // never show self
+                val users = supabase.from("users").select().decodeList<User>()
+                    .filter { it.id != selfId }
                     .sortedByDescending { it.isOnline }
                 _allUsers.value = users
                 rebuildFriendsList(users)
-                // Seed cache so first realtime event has a baseline to compare against
                 users.forEach { u ->
                     cachedHandRaised[u.id] = u.handRaised
                     cachedCurrentSession[u.id] = u.currentSession
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadAllUsers failed", e)
-                _error.value = "Failed to load users: ${e.message}"
-            } finally {
-                _isLoading.value = false
             }
         }
     }
@@ -165,28 +194,23 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         _friends.value = users.filter { it.id in ids }
     }
 
-    private suspend fun loadFriendIds(userId: String) {
+    private suspend fun fetchFriendIds(userId: String): List<String> {
+        val iAdded = supabase.from("friendships")
+            .select(Columns.list("friend_id")) { filter { eq("user_id", userId) } }
+            .decodeList<FriendRow>().map { it.friendId }
+        val addedMe = supabase.from("friendships")
+            .select(Columns.list("user_id")) { filter { eq("friend_id", userId) } }
+            .decodeList<UserRow>().map { it.userId }
+        return (iAdded + addedMe).distinct()
+    }
+
+    private suspend fun reloadFriendIds() {
         try {
-            // Friends I added
-            val iAdded = supabase.from("friendships")
-                .select(Columns.list("friend_id")) {
-                    filter { eq("user_id", userId) }
-                }
-                .decodeList<FriendRow>()
-                .map { it.friendId }
-
-            // Friends who added me
-            val addedMe = supabase.from("friendships")
-                .select(Columns.list("user_id")) {
-                    filter { eq("friend_id", userId) }
-                }
-                .decodeList<UserRow>()
-                .map { it.userId }
-
-            _friendIds.value = (iAdded + addedMe).distinct()
+            val userId = _currentUserId.value ?: return
+            _friendIds.value = fetchFriendIds(userId)
             rebuildFriendsList()
         } catch (e: Exception) {
-            Log.e(TAG, "loadFriendIds failed", e)
+            Log.e(TAG, "reloadFriendIds failed", e)
         }
     }
 
@@ -244,19 +268,51 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         val currentId = _currentUserId.value ?: return
         viewModelScope.launch {
             try {
-                // Only insert current user's direction — can't insert on behalf of the other user
-                supabase.from("friendships").upsert(
-                    buildJsonObject {
-                        put("user_id", currentId)
-                        put("friend_id", friendId)
-                    }
-                )
-                loadFriendIds(currentId)
+                supabase.from("friendships").upsert(buildJsonObject {
+                    put("user_id", currentId)
+                    put("friend_id", friendId)
+                })
+                reloadFriendIds()
             } catch (e: Exception) {
                 Log.e(TAG, "addFriend failed", e)
                 _error.value = "Failed to add friend: ${e.message}"
             }
         }
+    }
+
+    fun addFriendByUsername(username: String) {
+        if (username.isBlank()) { _error.value = "Username cannot be empty"; return }
+        val currentId = _currentUserId.value ?: return
+        viewModelScope.launch {
+            _addFriendLoading.value = true
+            _error.value = null
+            _addFriendSuccess.value = false
+            try {
+                val found = supabase.from("users")
+                    .select { filter { eq("username", username) } }
+                    .decodeSingleOrNull<User>()
+                if (found == null) { _error.value = "User '$username' not found"; return@launch }
+                if (found.id == currentId) { _error.value = "You can't add yourself"; return@launch }
+                supabase.from("friendships").upsert(buildJsonObject {
+                    put("user_id", currentId); put("friend_id", found.id)
+                })
+                supabase.from("friendships").upsert(buildJsonObject {
+                    put("user_id", found.id); put("friend_id", currentId)
+                })
+                reloadFriendIds()
+                _addFriendSuccess.value = true
+            } catch (e: Exception) {
+                Log.e(TAG, "addFriendByUsername failed", e)
+                _error.value = e.message ?: "Unknown error"
+            } finally {
+                _addFriendLoading.value = false
+            }
+        }
+    }
+
+    fun clearAddFriendState() {
+        _addFriendSuccess.value = false
+        _error.value = null
     }
 
     fun isFriend(userId: String): Boolean = _friendIds.value.contains(userId)
@@ -353,39 +409,6 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 if (isRaised) notifyFriends("hand_raised", message)
             } catch (e: Exception) {
                 Log.e(TAG, "updateHandRaisedStatus failed", e)
-            }
-        }
-    }
-
-    fun createHighFiveSession(partnerId: String) {
-        viewModelScope.launch {
-            try {
-                val currentUser = _currentUser.value ?: return@launch
-                val sessionId = UUID.randomUUID().toString()
-
-                val newSession = HighFiveSession(
-                    id = sessionId,
-                    initiatorId = currentUser.id,
-                    initiatorUsername = currentUser.username,
-                    partnerId = partnerId,
-                    partnerUsername = "",
-                    initiatorTimestamp = System.currentTimeMillis(),
-                    lastUpdated = System.currentTimeMillis()
-                )
-                supabase.from("high_five_sessions").insert(newSession)
-
-                // Mark current session on user row
-                supabase.from("users").update({
-                    set("current_session", sessionId)
-                }) {
-                    filter { eq("id", currentUser.id) }
-                }
-
-                // Push notification to the invited friend
-                notifyFriend(partnerId)
-            } catch (e: Exception) {
-                Log.e(TAG, "createHighFiveSession failed", e)
-                _error.value = "Error: ${e.message}"
             }
         }
     }

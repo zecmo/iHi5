@@ -32,8 +32,8 @@ fun FriendsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Find Fivers", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+            CenterAlignedTopAppBar(
+                title = { Text("Find Fivers") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

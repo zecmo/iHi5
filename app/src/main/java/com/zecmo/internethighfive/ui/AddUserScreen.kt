@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
@@ -23,13 +23,13 @@ import androidx.compose.ui.focus.focusRequester
 @Composable
 fun AddUserScreen(
     onNavigateBack: () -> Unit,
-    viewModel: AddUserViewModel = viewModel(factory = ViewModelProvider.AndroidViewModelFactory.getInstance(androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application))
+    viewModel: FriendsViewModel = viewModel(factory = ViewModelProvider.AndroidViewModelFactory.getInstance(LocalContext.current.applicationContext as android.app.Application))
 ) {
     var username by remember { mutableStateOf("") }
     var isError by remember { mutableStateOf(false) }
-    val isLoading by viewModel.isLoading.collectAsState()
+    val isLoading by viewModel.addFriendLoading.collectAsState()
     val error by viewModel.error.collectAsState()
-    val isSuccess by viewModel.isSuccess.collectAsState()
+    val isSuccess by viewModel.addFriendSuccess.collectAsState()
     val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
 
@@ -40,6 +40,7 @@ fun AddUserScreen(
     LaunchedEffect(isSuccess) {
         if (isSuccess) {
             Toast.makeText(context, "Friend added!", Toast.LENGTH_SHORT).show()
+            viewModel.clearAddFriendState()
             onNavigateBack()
         }
     }
@@ -60,7 +61,7 @@ fun AddUserScreen(
                         onClick = onNavigateBack,
                         enabled = !isLoading
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -82,7 +83,7 @@ fun AddUserScreen(
 
             OutlinedTextField(
                 value = username,
-                onValueChange = { 
+                onValueChange = {
                     val cleanInput = it.replace("\n", "")
                     username = cleanInput
                     isError = false
@@ -100,7 +101,7 @@ fun AddUserScreen(
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(
-                    onDone = { 
+                    onDone = {
                         if (username.isNotBlank()) {
                             viewModel.addFriendByUsername(username)
                         } else {
@@ -116,7 +117,7 @@ fun AddUserScreen(
             )
 
             Button(
-                onClick = { 
+                onClick = {
                     if (username.isNotBlank()) {
                         viewModel.addFriendByUsername(username)
                     } else {
@@ -137,4 +138,4 @@ fun AddUserScreen(
             }
         }
     }
-} 
+}
