@@ -76,13 +76,17 @@ create index if not exists sessions_partner_idx   on high_five_sessions (partner
 alter table high_five_sessions enable row level security;
 
 create policy "sessions_select" on high_five_sessions for select using (
-    auth.uid() = initiator_id or auth.uid() = partner_id
+    auth.uid() = initiator_id
+    or auth.uid() = partner_id
+    or (partner_id is null and completed = false)
 );
 create policy "sessions_insert" on high_five_sessions for insert with check (
     auth.uid() = initiator_id
 );
 create policy "sessions_update" on high_five_sessions for update using (
-    auth.uid() = initiator_id or auth.uid() = partner_id
+    auth.uid() = initiator_id
+    or auth.uid() = partner_id
+    or (partner_id is null and completed = false)
 );
 create policy "sessions_delete" on high_five_sessions for delete using (
     auth.uid() = initiator_id
