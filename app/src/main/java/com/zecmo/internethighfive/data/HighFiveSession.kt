@@ -21,5 +21,6 @@ data class HighFiveSession(
     @SerialName("last_updated")
     val lastUpdated: Long = 0L,
     val completed: Boolean = false,
-    val quality: String = ""
+    val quality: String = "",
+    val message: String = ""
 )
