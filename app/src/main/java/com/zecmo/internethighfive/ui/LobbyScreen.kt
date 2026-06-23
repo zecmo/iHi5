@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
@@ -40,8 +41,33 @@ fun LobbyScreen(
     val handRaised = currentUser?.handRaised == true
     var messageText by remember { mutableStateOf("") }
     var navigating by remember { mutableStateOf(false) }
+    val placeholders = remember {
+        listOf("What's the occasion?", "What for?", "What are we celebrating?", "Why Hi?")
+    }
+    val placeholder = remember { placeholders.random() }
 
     Scaffold(
+        bottomBar = {
+            Surface(
+                tonalElevation = 3.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = { messageText = it },
+                    placeholder = { Text(placeholder) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Done,
+                        capitalization = KeyboardCapitalization.Sentences
+                    ),
+                    enabled = !handRaised
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { 
@@ -124,16 +150,6 @@ fun LobbyScreen(
                                 text = if (handRaised) "Hand raised! 🙋" else "Tap to raise your hand",
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            OutlinedTextField(
-                                value = messageText,
-                                onValueChange = { messageText = it },
-                                placeholder = { Text("LFH - Looking for High5") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                enabled = !handRaised
                             )
                         }
                     }
