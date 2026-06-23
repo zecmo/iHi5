@@ -47,6 +47,7 @@ fun HighFiveScreen(
     val highFiveSession by viewModel.highFiveSession.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val error by viewModel.error.collectAsState()
+    val partnerStats by viewModel.partnerStats.collectAsState()
     val sessionMessage = highFiveSession?.message?.takeIf { it.isNotBlank() }
 
     // Sensor + force tracking
@@ -137,24 +138,27 @@ fun HighFiveScreen(
         onDispose { viewModel.onExitHighFiveScreen() }
     }
 
-    // Countdown trigger: fires when both players are connected
-    val bothConnected = highFiveSession?.let {
-        !it.partnerId.isNullOrEmpty() && it.initiatorId.isNotEmpty()
-    } == true
-
-    val bothConnectedEvent by viewModel.bothConnectedEvent.collectAsState()
+    // Countdown trigger: derived purely from the session row — both devices read the
+    // same `partnerPresent` and so can never disagree about whether to start.
+    val bothConnected by viewModel.partnerPresent.collectAsState()
     var countdown by remember { mutableStateOf<Int?>(null) }
 
-    // Fires once when both players are confirmed connected (event goes 0 → 1).
-    // Each device starts its own local countdown — no DB round-trip needed.
-    LaunchedEffect(bothConnectedEvent) {
-        if (bothConnectedEvent == 0) return@LaunchedEffect
-        if (highFiveState is HighFiveState.Success) return@LaunchedEffect
+    // Each device runs its own local 3-2-1 the moment it sees a partner. Exact sync
+    // isn't needed here — actual scoring uses server timestamps, not the countdown.
+    LaunchedEffect(bothConnected) {
+        if (!bothConnected) return@LaunchedEffect
+        if (highFiveState is HighFiveState.Success || highFiveState is HighFiveState.Error) return@LaunchedEffect
         countdown = 3; delay(1000L)
         countdown = 2; delay(1000L)
         countdown = 1; delay(1000L)
         countdown = null
         viewModel.readyToTap()
+    }
+
+    LaunchedEffect(highFiveState) {
+        if (highFiveState is HighFiveState.Success) {
+            viewModel.loadPartnerStats()
+        }
     }
 
     val partnerName = highFiveSession?.let {
@@ -189,7 +193,12 @@ fun HighFiveScreen(
 
             when {
                 highFiveState is HighFiveState.Success -> {
-                    SuccessContent(quality = (highFiveState as HighFiveState.Success).quality, message = sessionMessage)
+                    SuccessContent(
+                        quality = (highFiveState as HighFiveState.Success).quality,
+                        message = sessionMessage,
+                        partnerName = partnerName,
+                        stats = partnerStats
+                    )
                 }
                 highFiveState is HighFiveState.Error -> {
                     ErrorContent(
@@ -335,7 +344,12 @@ private fun WaitingTapContent(partnerName: String) {
 }
 
 @Composable
-private fun SuccessContent(quality: Float, message: String? = null) {
+private fun SuccessContent(
+    quality: Float,
+    message: String? = null,
+    partnerName: String = "Partner",
+    stats: PartnerStats? = null
+) {
     val (label, color) = when {
         quality >= 1.0f -> "PERFECT! 🌟" to Color(0xFFFFD700)
         quality >= 0.8f -> "GREAT! ⭐"   to Color(0xFF4CAF50)
@@ -351,11 +365,10 @@ private fun SuccessContent(quality: Float, message: String? = null) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = Modifier.scale(scale)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).scale(scale)
     ) {
         Text("HIGH FIVE!", fontSize = 48.sp, fontWeight = FontWeight.Black, color = color)
         Text(label, fontSize = 32.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
         LinearProgressIndicator(
             progress = { quality },
             modifier = Modifier.fillMaxWidth(0.6f).height(12.dp),
@@ -368,13 +381,55 @@ private fun SuccessContent(quality: Float, message: String? = null) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (message != null) {
-            Spacer(Modifier.height(8.dp))
             Text(
                 "\"$message\"",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+        }
+        Spacer(Modifier.height(4.dp))
+        HorizontalDivider(modifier = Modifier.fillMaxWidth(0.7f))
+        Spacer(Modifier.height(4.dp))
+        if (stats == null) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+        } else {
+            Text(
+                "${stats.flavorEmoji} ${stats.flavorLabel}",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                "You & $partnerName have high fived ${stats.totalCount} time${if (stats.totalCount == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            if (stats.qualityBreakdown.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    listOf("Perfect!" to "🌟", "Great!" to "⭐", "Good" to "👍", "Ok" to "👋", "Meh" to "🤷")
+                        .forEach { (key, emoji) ->
+                            val count = stats.qualityBreakdown[key] ?: 0
+                            if (count > 0) {
+                                Surface(
+                                    shape = MaterialTheme.shapes.small,
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        "$emoji $count",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                }
+            }
         }
     }
 }

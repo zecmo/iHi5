@@ -90,6 +90,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun logout() {
         viewModelScope.launch {
             try {
+                val userId = userPreferences.getUser()?.id
+                if (userId != null) {
+                    try {
+                        supabase.from("users").update({
+                            set("fcm_token", "")
+                        }) { filter { eq("id", userId) } }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to clear fcm_token on logout", e)
+                    }
+                }
                 supabase.auth.signOut()
                 userPreferences.clearUser()
                 _authState.value = AuthState.LoggedOut

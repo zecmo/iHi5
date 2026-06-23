@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zecmo.internethighfive.navigation.Screen
@@ -69,6 +70,11 @@ class MainActivity : ComponentActivity() {
                 val authViewModel: AuthViewModel = viewModel()
                 val friendsViewModel: FriendsViewModel = viewModel()
                 val authState by authViewModel.authState.collectAsState()
+                // Observed as state so the deep-link effect re-runs when the back stack
+                // actually settles — this is what prevents the navigate-Lobby-then-HighFive
+                // race that left the partner stranded on the lobby.
+                val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = currentBackStackEntry?.destination?.route
 
                 NavHost(navController = navController, startDestination = Screen.Login.route) {
                     composable(Screen.Login.route) {
@@ -129,32 +135,44 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Single effect handles auth transitions AND notification deep links.
-                // The notification intent uses FLAG_ACTIVITY_CLEAR_TASK so the activity is always
-                // recreated on tap — pendingSenderId is set in onCreate, then consumed here once
-                // auth confirms we're logged in.
-                LaunchedEffect(authState, pendingSenderId.value) {
+                // Effect 1 — base routing. Only moves between Login and the logged-in
+                // base (Lobby). Deliberately does NOT touch the deep link.
+                LaunchedEffect(authState) {
                     when (authState) {
                         is AuthState.LoggedOut -> navController.navigate(Screen.Login.route) {
                             popUpTo(0) { inclusive = true }
                         }
                         is AuthState.LoggedIn -> {
-                            // Ensure Lobby is the base destination
-                            if (navController.currentBackStackEntry?.destination?.route == Screen.Login.route) {
+                            if (currentRoute == null || currentRoute == Screen.Login.route) {
                                 navController.navigate(Screen.Lobby.route) {
                                     popUpTo(Screen.Login.route) { inclusive = true }
                                 }
                             }
-                            // If opened from a notification, go straight to HighFive
-                            pendingSenderId.value?.let { sender ->
-                                navController.navigate("${Screen.HighFive.route}/$sender") {
-                                    popUpTo(Screen.Lobby.route) { inclusive = false }
-                                }
-                                pendingSenderId.value = null
-                            }
                         }
                         else -> {}
                     }
+                }
+
+                // Effect 2 — notification deep link. The activity is recreated on tap
+                // (FLAG_ACTIVITY_CLEAR_TASK) with pendingSenderId set in onCreate. We
+                // wait until logged in AND the back stack has actually settled past
+                // Login before navigating, so the HighFive destination can never be
+                // dropped by a popUpTo(Lobby) that ran before Lobby existed.
+                LaunchedEffect(authState, pendingSenderId.value, currentRoute) {
+                    val sender = pendingSenderId.value ?: return@LaunchedEffect
+                    if (authState !is AuthState.LoggedIn) return@LaunchedEffect
+                    if (currentRoute == null || currentRoute == Screen.Login.route) return@LaunchedEffect
+
+                    val highFiveRoute = "${Screen.HighFive.route}/{userId}"
+                    val alreadyThere = currentRoute == highFiveRoute &&
+                        currentBackStackEntry?.arguments?.getString("userId") == sender
+                    if (!alreadyThere) {
+                        navController.navigate("${Screen.HighFive.route}/$sender") {
+                            popUpTo(Screen.Lobby.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                    pendingSenderId.value = null
                 }
             }
         }

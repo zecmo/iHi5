@@ -173,7 +173,7 @@ class FirebaseMessagingService : FirebaseMessagingService() {
                 .build()
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+            notificationManager.notify(senderId.hashCode().takeIf { it != 0 } ?: 1, notification)
             Log.d(TAG, "Notification shown successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error showing notification", e)

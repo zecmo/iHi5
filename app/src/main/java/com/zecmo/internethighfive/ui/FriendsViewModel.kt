@@ -162,6 +162,12 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                         cachedCurrentSession[u.id] = u.currentSession
                         cachedLastLoginAt[u.id] = u.lastLoginAt
                     }
+                    // Cache own row so realtime updates to self don't look like new changes
+                    _currentUser.value?.let { me ->
+                        cachedHandRaised[me.id] = me.handRaised
+                        cachedCurrentSession[me.id] = me.currentSession
+                        cachedLastLoginAt[me.id] = me.lastLoginAt
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadData failed", e)
