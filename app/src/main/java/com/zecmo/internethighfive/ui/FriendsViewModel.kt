@@ -280,7 +280,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
 
     // ── Notifications ──────────────────────────────────────────────────────────
 
-    private fun notifyFriends(type: String) {
+    private fun notifyFriends(type: String, message: String = "") {
         val recipientIds = _friendIds.value.ifEmpty { return }
         val sender = _currentUser.value ?: return
         viewModelScope.launch {
@@ -292,6 +292,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                         put("recipientIds", buildJsonArray { recipientIds.forEach { add(it) } })
                         put("senderName", sender.username)
                         put("senderId", sender.id)
+                        put("message", message)
                     }
                 )
                 Log.d(TAG, "notifyFriends sent: type=$type recipients=${recipientIds.size}")
@@ -301,7 +302,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun notifyFriend(friendId: String) {
+    private fun notifyFriend(friendId: String, message: String = "", receiverName: String = "") {
         val sender = _currentUser.value ?: return
         viewModelScope.launch {
             try {
@@ -312,6 +313,8 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                         put("recipientIds", buildJsonArray { add(friendId) })
                         put("senderName", sender.username)
                         put("senderId", sender.id)
+                        put("message", message)
+                        put("receiverName", receiverName)
                     }
                 )
                 Log.d(TAG, "notifyFriend sent to $friendId")
@@ -321,7 +324,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun inviteFriend(friendId: String) {
+    fun inviteFriend(friendId: String, message: String = "") {
         val currentId = _currentUserId.value ?: return
         viewModelScope.launch {
             try {
@@ -329,14 +332,15 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                     set("hand_raised", true)
                     set("raised_hand_at", System.currentTimeMillis())
                 }) { filter { eq("id", currentId) } }
-                notifyFriend(friendId)
+                // Notification is sent AFTER session creation in HighFiveViewModel.openSession()
+                // to avoid a race where the notification arrives before the session exists.
             } catch (e: Exception) {
                 Log.e(TAG, "inviteFriend failed", e)
             }
         }
     }
 
-    fun updateHandRaisedStatus(isRaised: Boolean) {
+    fun updateHandRaisedStatus(isRaised: Boolean, message: String = "") {
         val currentId = _currentUserId.value ?: return
         viewModelScope.launch {
             try {
@@ -346,7 +350,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 }) {
                     filter { eq("id", currentId) }
                 }
-                if (isRaised) notifyFriends("hand_raised")
+                if (isRaised) notifyFriends("hand_raised", message)
             } catch (e: Exception) {
                 Log.e(TAG, "updateHandRaisedStatus failed", e)
             }

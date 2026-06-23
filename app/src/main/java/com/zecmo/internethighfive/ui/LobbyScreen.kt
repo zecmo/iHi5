@@ -8,10 +8,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
@@ -31,11 +33,12 @@ fun LobbyScreen(
     onNavigateToHighFive: (String) -> Unit,
     viewModel: FriendsViewModel = viewModel()
 ) {
-    val friends by viewModel.friends.collectAsState()       // actual friends only
+    val friends by viewModel.friends.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val handRaised = currentUser?.handRaised == true
+    var messageText by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -107,8 +110,8 @@ fun LobbyScreen(
                                     .alpha(if (handRaised) 1f else 0.5f)
                                     .clickable {
                                         if (!handRaised) {
-                                            viewModel.updateHandRaisedStatus(true)
-                                            onNavigateToHighFive("open")
+                                            viewModel.updateHandRaisedStatus(true, messageText)
+                                            onNavigateToHighFive("open:$messageText")
                                         } else {
                                             viewModel.updateHandRaisedStatus(false)
                                         }
@@ -119,6 +122,16 @@ fun LobbyScreen(
                                 text = if (handRaised) "Hand raised! 🙋" else "Tap to raise your hand",
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = messageText,
+                                onValueChange = { messageText = it },
+                                placeholder = { Text("LFH - Looking for High5") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                enabled = !handRaised
                             )
                         }
                     }
@@ -159,15 +172,15 @@ fun LobbyScreen(
                         FriendCard(
                             user = friend,
                             onHighFiveRequest = {
-                            if (friend.hasActiveHighFive) {
-                                // Friend already raised hand — join their open session
-                                onNavigateToHighFive(friend.id)
-                            } else {
-                                // Invite: raise our hand, notify that friend, wait for them to join
-                                viewModel.inviteFriend(friend.id)
-                                onNavigateToHighFive("open")
+                                if (friend.hasActiveHighFive) {
+                                    onNavigateToHighFive(friend.id)
+                                } else {
+                                    viewModel.inviteFriend(friend.id)
+                                    // Pass "invite:<friendId>:<friendName>" so HighFiveViewModel
+                                    // can notify AFTER the session is created in the DB.
+                                    onNavigateToHighFive("invite:${friend.id}:${friend.username}:$messageText")
+                                }
                             }
-                        }
                         )
                     }
                 }

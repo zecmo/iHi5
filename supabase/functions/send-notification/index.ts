@@ -67,7 +67,7 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
 
 Deno.serve(async (req) => {
   try {
-    const { type, recipientIds, senderName, senderId } = await req.json()
+    const { type, recipientIds, senderName, senderId, message, receiverName } = await req.json()
 
     if (!recipientIds?.length) {
       return new Response(JSON.stringify({ sent: 0, reason: 'no recipients' }), { status: 200 })
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             message: {
               token: fcm_token,
-              data: { type, senderId, senderName },
+              data: { type, senderId, senderName, message: message ?? '', receiverName: receiverName ?? '' },
               android: { priority: 'high' },
             },
           }),

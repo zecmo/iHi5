@@ -67,7 +67,8 @@ create table if not exists high_five_sessions (
     partner_timestamp   bigint default 0,
     last_updated        bigint default 0,
     completed           boolean default false,
-    quality             text default ''
+    quality             text default '',
+    message             text default ''
 );
 
 create index if not exists sessions_initiator_idx on high_five_sessions (initiator_id);

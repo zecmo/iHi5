@@ -71,22 +71,24 @@ class FirebaseMessagingService : FirebaseMessagingService() {
         Log.d(TAG, "Message TTL: ${message.ttl}")
         
         message.data.let { data ->
-            val senderName = data["senderName"] ?: "Someone"
-            val senderId   = data["senderId"]   ?: ""
+            val senderName   = data["senderName"]   ?: "Someone"
+            val senderId     = data["senderId"]      ?: ""
+            val customMsg    = data["message"]       ?.takeIf { it.isNotBlank() }
+            val receiverName = data["receiverName"]  ?.takeIf { it.isNotBlank() }
             when (data["type"]) {
                 "hand_raised" -> {
                     Log.d(TAG, "hand_raised from $senderName")
                     showNotification(
-                        title    = "✋ Hand Raised!",
-                        message  = "$senderName raised their hand — go high five them!",
+                        title    = "🙋 $senderName's Hand is Up!",
+                        message  = customMsg ?: "LFH - Looking for High5",
                         senderId = senderId
                     )
                 }
                 "invite" -> {
                     Log.d(TAG, "invite from $senderName")
                     showNotification(
-                        title    = "🙋 High Five Invite!",
-                        message  = "$senderName wants to high five with you!",
+                        title    = "✋ $senderName raises to you!",
+                        message  = customMsg ?: "Don't leave me hanging${receiverName?.let { " $it" } ?: ""}…",
                         senderId = senderId
                     )
                 }

@@ -8,6 +8,7 @@ import com.zecmo.internethighfive.SupabaseClient
 import com.zecmo.internethighfive.data.HighFiveSession
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.data.UserPreferences
+import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.realtime.PostgresAction
@@ -15,6 +16,8 @@ import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.NonCancellable
@@ -165,49 +168,55 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
             val currentUser = _currentUser.value ?: return@launch
             Log.d(TAG, "connectToUser: currentUser=${currentUser.id} partnerId=$partnerId")
             try {
-                val sessions = supabase.from("high_five_sessions")
-                    .select {
-                        filter {
-                            eq("initiator_id", partnerId)
-                            eq("completed", false)
+                // Retry up to 4 times with 1.5s delay — the initiator's openSession() may not
+                // have completed in the DB yet when we arrive from a notification tap.
+                var sessions = emptyList<HighFiveSession>()
+                var session: HighFiveSession? = null
+                repeat(4) { attempt ->
+                    if (session != null) return@repeat
+                    sessions = supabase.from("high_five_sessions")
+                        .select {
+                            filter {
+                                eq("initiator_id", partnerId)
+                                eq("completed", false)
+                            }
                         }
-                    }
-                    .decodeList<HighFiveSession>()
-                Log.d(TAG, "connectToUser: found ${sessions.size} sessions for initiator $partnerId: ${sessions.map { "id=${it.id} partner=${it.partnerId}" }}")
+                        .decodeList<HighFiveSession>()
+                    Log.d(TAG, "connectToUser attempt $attempt: found ${sessions.size} sessions for $partnerId")
+                    session = sessions.firstOrNull { it.partnerId.isNullOrEmpty() }
+                    if (session == null && attempt < 3) delay(1500L)
+                }
 
-                // Only join sessions with no partner yet AND no tap recorded
-                // (initiatorTimestamp > 0 means stale data from old code or a previous round)
-                val session = sessions.firstOrNull { it.partnerId.isNullOrEmpty() && it.initiatorTimestamp == 0L }
-
-                if (session == null) {
+                val openSession = session
+                if (openSession == null) {
                     Log.w(TAG, "connectToUser: no open session found for $partnerId")
                     _error.value = "Partner is not ready — make sure they raised their hand first"
                     _highFiveState.value = HighFiveState.Error("Partner is not ready — make sure they raised their hand first")
                     return@launch
                 }
-                Log.d(TAG, "connectToUser: joining session ${session.id}")
+                Log.d(TAG, "connectToUser: joining session ${openSession.id}")
 
                 supabase.from("high_five_sessions").update({
                     set("partner_id", currentUser.id)
                     set("partner_username", currentUser.username)
                     set("last_updated", System.currentTimeMillis())
                 }) {
-                    filter { eq("id", session.id) }
+                    filter { eq("id", openSession.id) }
                 }
                 supabase.from("users").update({
-                    set("current_session", session.id)
+                    set("current_session", openSession.id)
                 }) {
                     filter { eq("id", currentUser.id) }
                 }
 
                 // Fetch the updated session so partner_id is populated — triggers countdown
                 val updatedSession = supabase.from("high_five_sessions")
-                    .select { filter { eq("id", session.id) } }
-                    .decodeSingleOrNull<HighFiveSession>() ?: session
+                    .select { filter { eq("id", openSession.id) } }
+                    .decodeSingleOrNull<HighFiveSession>() ?: openSession
 
                 _highFiveSession.value = updatedSession
                 _highFiveState.value = HighFiveState.WaitingForPartner
-                subscribeToSession(session.id)
+                subscribeToSession(openSession.id)
                 // Joiner already knows both are connected — start countdown immediately
                 _bothConnectedEvent.value = 1
             } catch (e: Exception) {
@@ -361,8 +370,8 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         else       -> 0.2f
     }
 
-    // Open session — raised hand with no specific partner yet
-    fun openSession() {
+    // Open session — raised hand. If invitePartnerId is set, notify that friend after session creation.
+    fun openSession(message: String = "", invitePartnerId: String? = null, inviteReceiverName: String? = null) {
         viewModelScope.launch {
             val currentUser = _currentUser.value ?: return@launch
             try {
@@ -374,7 +383,8 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                     partnerId = null,
                     partnerUsername = "",
                     initiatorTimestamp = 0L,
-                    lastUpdated = System.currentTimeMillis()
+                    lastUpdated = System.currentTimeMillis(),
+                    message = message
                 )
                 supabase.from("high_five_sessions").insert(session)
                 supabase.from("users").update({
@@ -383,10 +393,33 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 _highFiveSession.value = session
                 _highFiveState.value = HighFiveState.WaitingForPartner
                 subscribeToSession(sessionId)
+                // Notify AFTER session exists in DB so receiver's connectToUser() finds it
+                if (invitePartnerId != null) {
+                    notifyUser(invitePartnerId, "invite", message, inviteReceiverName ?: "")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "openSession failed", e)
                 _error.value = "Failed to open session: ${e.message}"
             }
+        }
+    }
+
+    private suspend fun notifyUser(recipientId: String, type: String, message: String, receiverName: String) {
+        val sender = _currentUser.value ?: return
+        try {
+            supabase.functions.invoke(
+                function = "send-notification",
+                body = buildJsonObject {
+                    put("type", type)
+                    put("recipientIds", buildJsonArray { add(recipientId) })
+                    put("senderName", sender.username)
+                    put("senderId", sender.id)
+                    put("message", message)
+                    put("receiverName", receiverName)
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "notifyUser failed", e)
         }
     }
 

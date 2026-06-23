@@ -47,6 +47,7 @@ fun HighFiveScreen(
     val highFiveSession by viewModel.highFiveSession.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val error by viewModel.error.collectAsState()
+    val sessionMessage = highFiveSession?.message?.takeIf { it.isNotBlank() }
 
     // Sensor + force tracking
     var currentForce by remember { mutableStateOf(0f) }
@@ -111,8 +112,20 @@ fun HighFiveScreen(
             sessionStarted = true
             viewModel.onEnterHighFiveScreen()
             when {
+                partnerId.startsWith("open:") -> {
+                    val message = partnerId.removePrefix("open:")
+                    viewModel.openSession(message = message)
+                }
                 partnerId == "open" -> viewModel.openSession()
-                else                -> viewModel.connectToUser(partnerId)
+                partnerId.startsWith("invite:") -> {
+                    // format: "invite:<friendId>:<friendName>:<message>"
+                    val parts = partnerId.removePrefix("invite:").split(":", limit = 3)
+                    val friendId = parts.getOrElse(0) { "" }
+                    val friendName = parts.getOrElse(1) { "" }
+                    val message = parts.getOrElse(2) { "" }
+                    viewModel.openSession(message = message, invitePartnerId = friendId, inviteReceiverName = friendName)
+                }
+                else -> viewModel.connectToUser(partnerId)
             }
         }
     }
@@ -173,7 +186,7 @@ fun HighFiveScreen(
 
             when {
                 highFiveState is HighFiveState.Success -> {
-                    SuccessContent(quality = (highFiveState as HighFiveState.Success).quality)
+                    SuccessContent(quality = (highFiveState as HighFiveState.Success).quality, message = sessionMessage)
                 }
                 highFiveState is HighFiveState.Error -> {
                     ErrorContent(
@@ -185,7 +198,7 @@ fun HighFiveScreen(
                     CountdownContent(count = countdown!!)
                 }
                 !bothConnected -> {
-                    WaitingContent(partnerName = partnerName)
+                    WaitingContent(partnerName = partnerName, message = sessionMessage)
                 }
                 highFiveState is HighFiveState.Waiting -> {
                     WaitingTapContent(partnerName = partnerName)
@@ -208,7 +221,7 @@ fun HighFiveScreen(
 // ── Sub-screens ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun WaitingContent(partnerName: String) {
+private fun WaitingContent(partnerName: String, message: String? = null) {
     val pulse = rememberInfiniteTransition(label = "pulse")
     val alpha by pulse.animateFloat(
         initialValue = 0.4f, targetValue = 1f,
@@ -223,7 +236,11 @@ private fun WaitingContent(partnerName: String) {
             tint = MaterialTheme.colorScheme.primary
         )
         Text("Waiting for $partnerName…", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-        Text("Share your username so they can find you", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        if (message != null) {
+            Text("\"$message\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+        } else {
+            Text("Share your username so they can find you", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -316,7 +333,7 @@ private fun WaitingTapContent(partnerName: String) {
 }
 
 @Composable
-private fun SuccessContent(quality: Float) {
+private fun SuccessContent(quality: Float, message: String? = null) {
     val (label, color) = when {
         quality >= 1.0f -> "PERFECT! 🌟" to Color(0xFFFFD700)
         quality >= 0.8f -> "GREAT! ⭐"   to Color(0xFF4CAF50)
@@ -348,6 +365,15 @@ private fun SuccessContent(quality: Float) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (message != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "\"$message\"",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
