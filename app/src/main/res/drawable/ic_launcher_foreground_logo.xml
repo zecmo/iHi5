@@ -3,6 +3,6 @@
     <item
         android:drawable="@drawable/hi5_logo"
         android:gravity="center"
-        android:width="90dp"
-        android:height="90dp" />
+        android:width="60dp"
+        android:height="60dp" />
 </layer-list>
