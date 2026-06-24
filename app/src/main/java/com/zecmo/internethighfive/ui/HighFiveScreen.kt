@@ -165,10 +165,28 @@ fun HighFiveScreen(
         if (currentUser?.id == it.initiatorId) it.partnerUsername else it.initiatorUsername
     }?.takeIf { it.isNotEmpty() } ?: "Partner"
 
+    // For a direct invite, we know the target's name up front (it rides in the nav arg)
+    // even before they join — so we can name them instead of showing "Finding Partner…".
+    val inviteTargetName = remember(partnerId) {
+        if (partnerId.startsWith("invite:")) {
+            partnerId.removePrefix("invite:").split(":", limit = 3).getOrNull(1)?.takeIf { it.isNotBlank() }
+        } else null
+    }
+    // Before the partner connects, prefer the known invite target name.
+    val waitingName = if (bothConnected) partnerName else (inviteTargetName ?: partnerName)
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (bothConnected) "High Five with $partnerName" else "Finding $partnerName…") },
+                title = {
+                    Text(
+                        when {
+                            bothConnected -> "High Five with $partnerName"
+                            inviteTargetName != null -> "Raised hand to $inviteTargetName"
+                            else -> "Finding $partnerName…"
+                        }
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -210,7 +228,7 @@ fun HighFiveScreen(
                     CountdownContent(count = countdown!!)
                 }
                 !bothConnected -> {
-                    WaitingContent(partnerName = partnerName, message = sessionMessage)
+                    WaitingContent(partnerName = waitingName, message = sessionMessage)
                 }
                 highFiveState is HighFiveState.Waiting -> {
                     WaitingTapContent(partnerName = partnerName)

@@ -156,11 +156,15 @@ class FirebaseMessagingService : FirebaseMessagingService() {
                 if (senderId.isNotEmpty()) putExtra("sender_id", senderId)
             }
             
+            // Per-sender request code + UPDATE_CURRENT so each notification carries its
+            // OWN sender_id. Without this, Android reuses the first cached PendingIntent
+            // and taps deliver a stale/missing sender_id → receiver joins nothing.
+            val requestCode = senderId.hashCode().takeIf { it != 0 } ?: 1
             val pendingIntent = PendingIntent.getActivity(
                 this,
-                0,
+                requestCode,
                 intent,
-                PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 
             val notification = NotificationCompat.Builder(this, CHANNEL_ID)
