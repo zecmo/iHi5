@@ -51,7 +51,10 @@ fun LobbyScreen(
         bottomBar = {
             Surface(
                 tonalElevation = 3.dp,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
             ) {
                 OutlinedTextField(
                     value = messageText,
