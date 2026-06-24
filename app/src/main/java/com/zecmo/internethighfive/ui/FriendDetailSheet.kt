@@ -13,7 +13,7 @@ import com.zecmo.internethighfive.data.User
 
 private val NOTIFICATION_PREFS = listOf(
     "all" to "All",
-    "targeted" to "Targeted",
+    "targeted" to "Direct",
     "none" to "None"
 )
 
@@ -28,6 +28,7 @@ fun FriendDetailSheet(
     val partnerStats by statsViewModel.partnerStats.collectAsState()
     var pref by remember(friend.id) { mutableStateOf("all") }
     var showRemoveConfirm by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState()
 
     LaunchedEffect(friend.id) {
         statsViewModel.loadStatsForFriend(friend.id)
@@ -37,7 +38,7 @@ fun FriendDetailSheet(
         onDispose { statsViewModel.clearPartnerStats() }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -116,13 +117,18 @@ fun FriendDetailSheet(
             }
             Text(
                 when (pref) {
-                    "all" -> "You'll get hand-raised alerts and direct invites from ${friend.username}."
-                    "targeted" -> "You'll only get direct invites from ${friend.username}, not hand-raised broadcasts."
-                    else -> "You won't receive any notifications from ${friend.username}."
+                    "all" -> "You'll get all notifications from ${friend.username}."
+                    "targeted" -> "You'll only get direct invite from ${friend.username}."
+                    else -> "You won't get notifications from ${friend.username}."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Pushes Remove Friend further down so it lands behind the nav bar / gesture
+            // line at the sheet's default half-expanded position — user has to drag
+            // further to reveal it, which is intentional.
+            Spacer(Modifier.height(48.dp))
 
             HorizontalDivider()
 

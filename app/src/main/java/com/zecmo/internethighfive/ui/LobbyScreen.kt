@@ -2,7 +2,6 @@ package com.zecmo.internethighfive.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
-import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -122,7 +121,16 @@ fun LobbyScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 16.dp),
+                            .padding(bottom = 16.dp)
+                            .clickable {
+                                if (!handRaised && !navigating) {
+                                    navigating = true
+                                    viewModel.updateHandRaisedStatus(true, messageText)
+                                    onNavigateToHighFive("open:$messageText")
+                                } else if (handRaised) {
+                                    viewModel.updateHandRaisedStatus(false)
+                                }
+                            },
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
                         )
@@ -138,24 +146,13 @@ fun LobbyScreen(
                                 contentDescription = "Raise Hand",
                                 modifier = Modifier
                                     .size(150.dp)
-                                    .padding(bottom = 16.dp)
-                                    .alpha(if (handRaised) 1f else 0.5f)
-                                    .clickable {
-                                        if (!handRaised && !navigating) {
-                                            navigating = true
-                                            viewModel.updateHandRaisedStatus(true, messageText)
-                                            onNavigateToHighFive("open:$messageText")
-                                        } else if (handRaised) {
-                                            viewModel.updateHandRaisedStatus(false)
-                                        }
-                                    },
+                                    .padding(bottom = 16.dp),
                                 contentScale = ContentScale.Fit
                             )
                             Text(
                                 text = when {
                                     inSession -> "High Fiving! 🙌"
-                                    handRaised -> "Hand raised! 🙋"
-                                    else -> "Tap to raise your hand"
+                                    else -> "Raise your hand"
                                 },
                                 style = MaterialTheme.typography.headlineMedium,
                                 textAlign = TextAlign.Center

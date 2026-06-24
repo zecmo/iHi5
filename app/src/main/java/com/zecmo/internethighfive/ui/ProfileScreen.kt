@@ -35,7 +35,7 @@ fun ProfileScreen(
             TopAppBar(
                 title = { 
                     Text(
-                        text = "You",
+                        text = "Profile",
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
                     )
@@ -175,23 +175,10 @@ fun ProfileScreen(
                 },
                 title = {
                     Text(
-                        "Logout?",
+                        "Would you like to logout?",
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
                     )
-                },
-                text = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "Are you sure you want to logout?",
-                            textAlign = TextAlign.Center
-                        )
-                    }
                 }
             )
         }

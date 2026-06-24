@@ -49,7 +49,7 @@ fun FriendsScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search by username") },
+                placeholder = { Text("Search for Fiver") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )

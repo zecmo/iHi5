@@ -258,18 +258,21 @@ private fun WaitingContent(partnerName: String, message: String? = null) {
         label = "alpha"
     )
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (message != null) {
+            Text(
+                "\"$message\"",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+        }
         Icon(
             Icons.Default.BackHand,
             contentDescription = null,
             modifier = Modifier.size(120.dp).alpha(alpha),
             tint = MaterialTheme.colorScheme.primary
         )
-        Text("Waiting for $partnerName…", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-        if (message != null) {
-            Text("\"$message\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
-        } else {
-            Text("Share your username so they can find you", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
+        Text("Hand is Up! ✋", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
     }
 }
 
