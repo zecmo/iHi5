@@ -16,7 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.zecmo.internethighfive.data.User
-import com.zecmo.internethighfive.ui.theme.AppBackgroundBrush
+import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +37,7 @@ fun FriendsScreen(
         .filter { searchQuery.isBlank() || it.username.contains(searchQuery, ignoreCase = true) }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().background(AppBackgroundBrush),
+        modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
         containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
@@ -101,7 +101,10 @@ private fun FindFiversCard(
     onAddFriend: () -> Unit,
     onHighFive: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.35f))
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -116,11 +119,11 @@ private fun FindFiversCard(
             ) {}
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(user.username, style = MaterialTheme.typography.titleMedium)
+                Text(user.username, style = MaterialTheme.typography.titleMedium, color = Color.White)
                 Text(
                     if (user.isOnline) "Online" else "Offline",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White
                 )
             }
 

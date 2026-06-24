@@ -2,7 +2,7 @@ package com.zecmo.internethighfive.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import com.zecmo.internethighfive.ui.theme.AppBackgroundBrush
+import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -32,7 +32,7 @@ fun ProfileScreen(
     var showLogoutConfirmation by remember { mutableStateOf(false) }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().background(AppBackgroundBrush),
+        modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
         containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
@@ -66,12 +66,14 @@ fun ProfileScreen(
         ) {
             Text(
                 text = username,
-                style = MaterialTheme.typography.headlineMedium
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White
             )
-            
+
             Text(
                 text = "Connect your accounts",
                 style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
                 modifier = Modifier.padding(top = 24.dp)
             )
 
@@ -127,6 +129,7 @@ fun ProfileScreen(
             Text(
                 text = "Support Me",
                 style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
                 modifier = Modifier.padding(top = 24.dp)
             )
 

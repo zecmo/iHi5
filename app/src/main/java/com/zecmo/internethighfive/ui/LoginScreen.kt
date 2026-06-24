@@ -19,7 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.widget.Toast
 import com.zecmo.internethighfive.R
-import com.zecmo.internethighfive.ui.theme.AppBackgroundBrush
+import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,7 +47,7 @@ fun LoginScreen(
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().background(AppBackgroundBrush),
+        modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
         containerColor = Color.Transparent
     ) { padding ->
     Box(
@@ -75,7 +75,8 @@ fun LoginScreen(
 
             Text(
                 text = "Internet High Five!",
-                style = MaterialTheme.typography.headlineMedium
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White
             )
         }
 
