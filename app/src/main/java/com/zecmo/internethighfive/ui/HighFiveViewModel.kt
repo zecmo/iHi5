@@ -11,6 +11,7 @@ import com.zecmo.internethighfive.data.UserPreferences
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
@@ -82,7 +83,8 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     private var sessionChannel: RealtimeChannel? = null
     private var pollingJob: Job? = null
-    private var scored = false     // score the session exactly once
+    private var scored = false           // score the session exactly once
+    private var markedInSession = false  // write initiator's current_session once, on join
     private var hasLeft = false   // makes leave() idempotent across onDispose + onCleared
 
     init {
@@ -105,6 +107,24 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
      */
     private fun applySession(session: HighFiveSession) {
         _session.value = session
+
+        // Once a partner is present, the initiator marks itself "in session" so the
+        // lobby flips from "Hand raised!" to "High Fiving!". Done once. (The joiner
+        // already set its own current_session in connectToUser.)
+        val me = _currentUser.value?.id
+        if (!session.completed && me == session.initiatorId &&
+            !session.partnerId.isNullOrEmpty() && !markedInSession) {
+            markedInSession = true
+            viewModelScope.launch {
+                try {
+                    supabase.from("users").update({
+                        set("current_session", session.id)
+                    }) { filter { eq("id", me) } }
+                } catch (e: Exception) {
+                    Log.e(TAG, "mark in-session failed", e)
+                }
+            }
+        }
 
         // Terminal: the initiator wrote a result — both devices land here via realtime.
         if (session.completed) {
@@ -184,10 +204,20 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     /** Open a session — raised hand. If [invitePartnerId] is set, ping that friend. */
     fun openSession(message: String = "", invitePartnerId: String? = null, inviteReceiverName: String? = null) {
         if (_session.value != null) return
-        hasLeft = false; scored = false
+        hasLeft = false; scored = false; markedInSession = false
         viewModelScope.launch {
             val currentUser = _currentUser.value ?: return@launch
             try {
+                // Clear any orphaned open sessions from prior attempts so a joiner can
+                // never pick a stale one instead of this fresh session.
+                try {
+                    supabase.from("high_five_sessions").delete {
+                        filter { eq("initiator_id", currentUser.id); eq("completed", false) }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "failed clearing stale sessions", e)
+                }
+
                 val sessionId = UUID.randomUUID().toString()
                 val session = HighFiveSession(
                     id = sessionId,
@@ -198,9 +228,9 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                     message = message
                 )
                 supabase.from("high_five_sessions").insert(session)
-                supabase.from("users").update({
-                    set("current_session", sessionId)
-                }) { filter { eq("id", currentUser.id) } }
+                // NOTE: current_session is intentionally NOT set here — it's set once a
+                // partner joins (see applySession), so the lobby shows "Hand raised!"
+                // while waiting and only flips to "High Fiving!" once connected.
                 applySession(session)
                 _highFiveState.value = HighFiveState.WaitingForPartner
                 subscribeToSession(sessionId)
@@ -219,7 +249,7 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     fun connectToUser(partnerId: String) {
         if (_session.value != null) return
-        hasLeft = false; scored = false
+        hasLeft = false; scored = false; markedInSession = true  // joiner is in-session immediately
         _highFiveState.value = HighFiveState.Idle
         viewModelScope.launch {
             val currentUser = _currentUser.value ?: return@launch
@@ -236,6 +266,9 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                                 eq("initiator_id", partnerId)
                                 eq("completed", false)
                             }
+                            // NEWEST first — orphaned sessions from prior attempts must not
+                            // win over the one the initiator is currently waiting on.
+                            order("last_updated", Order.DESCENDING)
                         }
                         .decodeList<HighFiveSession>()
                     // A fresh open session, OR one we already joined (idempotent re-entry
