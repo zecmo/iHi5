@@ -1,10 +1,13 @@
 package com.zecmo.internethighfive.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.text.KeyboardActions
@@ -13,6 +16,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.widget.Toast
+import com.zecmo.internethighfive.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,19 +43,42 @@ fun LoginScreen(
         }
     }
 
-    Column(
+    Scaffold { padding ->
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(padding)
+            .padding(16.dp)
     ) {
-        Text(
-            text = "Welcome to Internet High Five!",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(48.dp))
 
+            Image(
+                painter = painterResource(id = R.drawable.hi5_logo),
+                contentDescription = "Internet High Five",
+                modifier = Modifier
+                    .size(220.dp)
+                    .padding(bottom = 16.dp),
+                contentScale = ContentScale.Fit
+            )
+
+            Text(
+                text = "Internet High Five!",
+                style = MaterialTheme.typography.headlineMedium
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         OutlinedTextField(
             value = username,
             onValueChange = {
@@ -120,5 +147,7 @@ fun LoginScreen(
                 }
             )
         }
+        }
     }
-} 
+    }
+}
