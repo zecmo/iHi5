@@ -26,9 +26,12 @@ fun FriendsScreen(
     val allUsers by viewModel.allUsers.collectAsState()
     val friendIds by viewModel.friendIds.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
 
     // Non-friends only (self already filtered in VM)
-    val nonFriends = allUsers.filter { it.id !in friendIds }
+    val nonFriends = allUsers
+        .filter { it.id !in friendIds }
+        .filter { searchQuery.isBlank() || it.username.contains(searchQuery, ignoreCase = true) }
 
     Scaffold(
         topBar = {
@@ -42,30 +45,44 @@ fun FriendsScreen(
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (nonFriends.isEmpty()) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center).padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("No new fivers found", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-                    Text("Everyone you know is already a friend!", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(nonFriends, key = { it.id }) { user ->
-                        FindFiversCard(
-                            user = user,
-                            onAddFriend = { viewModel.addFriend(user.id) },
-                            onHighFive = { onNavigateToHighFive(user.id) }
-                        )
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search by username") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                } else if (nonFriends.isEmpty()) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val (title, subtitle) = if (searchQuery.isNotBlank()) {
+                            "No matches" to "No one found matching \"$searchQuery\""
+                        } else {
+                            "No new fivers found" to "Everyone you know is already a friend!"
+                        }
+                        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(nonFriends, key = { it.id }) { user ->
+                            FindFiversCard(
+                                user = user,
+                                onAddFriend = { viewModel.addFriend(user.id) },
+                                onHighFive = { onNavigateToHighFive(user.id) }
+                            )
+                        }
                     }
                 }
             }

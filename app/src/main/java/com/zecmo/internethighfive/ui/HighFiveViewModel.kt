@@ -467,6 +467,21 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     private suspend fun notifyUser(recipientId: String, type: String, message: String, receiverName: String) {
         val sender = _currentUser.value ?: return
         try {
+            // Direct invites are only suppressed when the recipient has muted me entirely.
+            val pref = try {
+                supabase.from("friendships")
+                    .select(io.github.jan.supabase.postgrest.query.Columns.list("notification_pref")) {
+                        filter { eq("user_id", recipientId); eq("friend_id", sender.id) }
+                    }
+                    .decodeSingleOrNull<FriendNotificationPrefRow>()?.notificationPref ?: "all"
+            } catch (e: Exception) {
+                Log.e(TAG, "notifyUser pref lookup failed", e)
+                "all"
+            }
+            if (pref == "none") {
+                Log.d(TAG, "notifyUser suppressed (muted) for $recipientId")
+                return
+            }
             supabase.functions.invoke(
                 function = "send-notification",
                 body = buildJsonObject {
@@ -510,6 +525,35 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // Standalone variant for the friend-detail sheet — takes an explicit friend id
+    // instead of deriving the partner from the active session.
+    fun loadStatsForFriend(friendId: String) {
+        val myId = _currentUser.value?.id ?: return
+        _partnerStats.value = null
+        viewModelScope.launch {
+            try {
+                val asInitiator = supabase.from("high_five_sessions")
+                    .select { filter { eq("initiator_id", myId); eq("partner_id", friendId); eq("completed", true) } }
+                    .decodeList<HighFiveSession>()
+                val asPartner = supabase.from("high_five_sessions")
+                    .select { filter { eq("initiator_id", friendId); eq("partner_id", myId); eq("completed", true) } }
+                    .decodeList<HighFiveSession>()
+                val all = (asInitiator + asPartner).filter { it.quality != TOO_SLOW }
+                val breakdown = all.groupBy { it.quality }.mapValues { it.value.size }
+                val avgQuality = if (all.isEmpty()) 0f
+                    else all.sumOf { qualityLabelToFloat(it.quality).toDouble() }.toFloat() / all.size
+                val (label, emoji) = deriveFlavorLabel(all.size, avgQuality)
+                _partnerStats.value = PartnerStats(all.size, breakdown, label, emoji)
+            } catch (e: Exception) {
+                Log.e(TAG, "loadStatsForFriend failed", e)
+            }
+        }
+    }
+
+    fun clearPartnerStats() {
+        _partnerStats.value = null
+    }
+
     private fun deriveFlavorLabel(count: Int, avgQuality: Float): Pair<String, String> = when {
         count == 1                              -> "First High Five!"       to "🎉"
         count <= 3  && avgQuality < 0.5f        -> "Still Figuring It Out"  to "🤔"
@@ -544,4 +588,9 @@ data class PartnerStats(
     val qualityBreakdown: Map<String, Int>,
     val flavorLabel: String,
     val flavorEmoji: String
+)
+
+@kotlinx.serialization.Serializable
+private data class FriendNotificationPrefRow(
+    @kotlinx.serialization.SerialName("notification_pref") val notificationPref: String? = null
 )

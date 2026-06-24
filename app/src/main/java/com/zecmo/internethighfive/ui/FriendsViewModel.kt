@@ -72,6 +72,10 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
+    // Cache of friendId -> my notification_pref for that friend ("all" | "targeted" | "none")
+    private val _notificationPrefs = MutableStateFlow<Map<String, String>>(emptyMap())
+    val notificationPrefs: StateFlow<Map<String, String>> = _notificationPrefs.asStateFlow()
+
     private var heartbeatJob: Job? = null
     private var usersChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
 
@@ -333,6 +337,55 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
 
     fun isFriend(userId: String): Boolean = _friendIds.value.contains(userId)
 
+    fun removeFriend(friendId: String) {
+        val currentId = _currentUserId.value ?: return
+        viewModelScope.launch {
+            try {
+                supabase.from("friendships").delete {
+                    filter { eq("user_id", currentId); eq("friend_id", friendId) }
+                }
+                supabase.from("friendships").delete {
+                    filter { eq("user_id", friendId); eq("friend_id", currentId) }
+                }
+                reloadFriendIds()
+            } catch (e: Exception) {
+                Log.e(TAG, "removeFriend failed", e)
+                _error.value = "Failed to remove friend: ${e.message}"
+            }
+        }
+    }
+
+    // notification_pref lives on MY row (user_id = me, friend_id = them) and controls
+    // what I receive from that friend: "all" | "targeted" | "none".
+    fun setNotificationPref(friendId: String, pref: String) {
+        val currentId = _currentUserId.value ?: return
+        viewModelScope.launch {
+            try {
+                supabase.from("friendships").update({
+                    set("notification_pref", pref)
+                }) { filter { eq("user_id", currentId); eq("friend_id", friendId) } }
+                _notificationPrefs.value = _notificationPrefs.value + (friendId to pref)
+            } catch (e: Exception) {
+                Log.e(TAG, "setNotificationPref failed", e)
+                _error.value = "Failed to update notification setting: ${e.message}"
+            }
+        }
+    }
+
+    suspend fun fetchNotificationPref(friendId: String): String {
+        val currentId = _currentUserId.value ?: return "all"
+        return try {
+            supabase.from("friendships")
+                .select(Columns.list("notification_pref")) {
+                    filter { eq("user_id", currentId); eq("friend_id", friendId) }
+                }
+                .decodeSingleOrNull<NotificationPrefRow>()?.notificationPref ?: "all"
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchNotificationPref failed", e)
+            "all"
+        }
+    }
+
     // ── FCM token ──────────────────────────────────────────────────────────────
 
     private fun storeFcmToken(userId: String) {
@@ -352,11 +405,30 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
 
     // ── Notifications ──────────────────────────────────────────────────────────
 
+    // Returns, for each candidate recipient, the notification_pref THEY set for ME
+    // (their row: user_id = recipientId, friend_id = senderId). Missing rows default to "all".
+    private suspend fun fetchRecipientPrefs(recipientIds: List<String>, senderId: String): Map<String, String> {
+        if (recipientIds.isEmpty()) return emptyMap()
+        val rows = supabase.from("friendships")
+            .select(Columns.list("user_id", "notification_pref")) {
+                filter {
+                    eq("friend_id", senderId)
+                    isIn("user_id", recipientIds)
+                }
+            }
+            .decodeList<RecipientPrefRow>()
+        return rows.associate { it.userId to (it.notificationPref ?: "all") }
+    }
+
     private fun notifyFriends(type: String, message: String = "") {
-        val recipientIds = _friendIds.value.ifEmpty { return }
+        val candidateIds = _friendIds.value.ifEmpty { return }
         val sender = _currentUser.value ?: return
         viewModelScope.launch {
             try {
+                // Broadcast (hand_raised) is suppressed for friends set to "targeted" or "none".
+                val prefs = fetchRecipientPrefs(candidateIds, sender.id)
+                val recipientIds = candidateIds.filter { (prefs[it] ?: "all") == "all" }
+                if (recipientIds.isEmpty()) return@launch
                 supabase.functions.invoke(
                     function = "send-notification",
                     body = buildJsonObject {
@@ -424,4 +496,15 @@ private data class FriendRow(
 @kotlinx.serialization.Serializable
 private data class UserRow(
     @kotlinx.serialization.SerialName("user_id") val userId: String
+)
+
+@kotlinx.serialization.Serializable
+private data class NotificationPrefRow(
+    @kotlinx.serialization.SerialName("notification_pref") val notificationPref: String? = null
+)
+
+@kotlinx.serialization.Serializable
+private data class RecipientPrefRow(
+    @kotlinx.serialization.SerialName("user_id") val userId: String,
+    @kotlinx.serialization.SerialName("notification_pref") val notificationPref: String? = null
 )

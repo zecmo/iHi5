@@ -171,3 +171,10 @@ alter table high_five_sessions
 -- Remove stale column if it exists from an earlier schema iteration
 alter table high_five_sessions
     drop column if exists reason;
+
+-- Added: per-friend notification preference (all | targeted | none)
+-- Lives on the row where user_id = the receiver, friend_id = the sender being configured.
+-- Controls what *this user* receives from that friend.
+alter table friendships
+    add column if not exists notification_pref text default 'all';
+

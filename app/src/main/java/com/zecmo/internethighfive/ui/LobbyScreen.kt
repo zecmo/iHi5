@@ -46,6 +46,7 @@ fun LobbyScreen(
         listOf("What's the occasion?", "What for?", "What are we celebrating?", "Why Hi?")
     }
     val placeholder = remember { placeholders.random() }
+    var selectedFriend by remember { mutableStateOf<User?>(null) }
 
     Scaffold(
         bottomBar = {
@@ -197,6 +198,7 @@ fun LobbyScreen(
                     ) { friend ->
                         FriendCard(
                             user = friend,
+                            onClick = { selectedFriend = friend },
                             onHighFiveRequest = {
                                 if (!navigating) {
                                     navigating = true
@@ -214,17 +216,28 @@ fun LobbyScreen(
             }
         }
     }
+
+    selectedFriend?.let { friend ->
+        FriendDetailSheet(
+            friend = friend,
+            friendsViewModel = viewModel,
+            onDismiss = { selectedFriend = null }
+        )
+    }
 }
 
 @Composable
 private fun FriendCard(
     user: User,
+    onClick: () -> Unit,
     onHighFiveRequest: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = if (user.isOnline) 
+            containerColor = if (user.isOnline)
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
                 else MaterialTheme.colorScheme.surface
         )
