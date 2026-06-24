@@ -65,7 +65,9 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            InternetHighFiveTheme {
+            // Forced dark: the app now paints its own navy->gray gradient background on
+            // every screen regardless of system theme, so text colors must stay light too.
+            InternetHighFiveTheme(darkTheme = true, dynamicColor = false) {
                 val navController = rememberNavController()
                 val authViewModel: AuthViewModel = viewModel()
                 val friendsViewModel: FriendsViewModel = viewModel()

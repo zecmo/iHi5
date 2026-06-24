@@ -14,6 +14,7 @@ import android.os.VibratorManager
 import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
+import com.zecmo.internethighfive.ui.theme.AppBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -176,6 +178,8 @@ fun HighFiveScreen(
     val waitingName = if (bothConnected) partnerName else (inviteTargetName ?: partnerName)
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().background(AppBackgroundBrush),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {

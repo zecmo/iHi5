@@ -1,6 +1,7 @@
 package com.zecmo.internethighfive.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.R
+import com.zecmo.internethighfive.ui.theme.AppBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +50,8 @@ fun LobbyScreen(
     var selectedFriend by remember { mutableStateOf<User?>(null) }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().background(AppBackgroundBrush),
+        containerColor = Color.Transparent,
         bottomBar = {
             Surface(
                 tonalElevation = 3.dp,

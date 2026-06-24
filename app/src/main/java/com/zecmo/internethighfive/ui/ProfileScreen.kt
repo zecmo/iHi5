@@ -2,6 +2,7 @@ package com.zecmo.internethighfive.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.zecmo.internethighfive.ui.theme.AppBackgroundBrush
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,8 @@ fun ProfileScreen(
     var showLogoutConfirmation by remember { mutableStateOf(false) }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().background(AppBackgroundBrush),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { 
