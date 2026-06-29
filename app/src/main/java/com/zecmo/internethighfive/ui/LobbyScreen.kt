@@ -60,7 +60,6 @@ fun LobbyScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .imePadding()
             ) {
                 OutlinedTextField(
                     value = messageText,

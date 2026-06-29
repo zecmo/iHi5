@@ -3,6 +3,8 @@ package com.zecmo.internethighfive.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,48 +52,40 @@ fun LoginScreen(
         modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
         containerColor = Color.Transparent
     ) { padding ->
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
             .padding(16.dp)
+            .imePadding()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
+        Spacer(Modifier.height(48.dp))
+
+        Image(
+            painter = painterResource(id = R.drawable.hi5_logo),
+            contentDescription = "Internet High Five",
             modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(Modifier.height(48.dp))
+                .size(220.dp)
+                .padding(bottom = 16.dp),
+            contentScale = ContentScale.Fit
+        )
 
-            Image(
-                painter = painterResource(id = R.drawable.hi5_logo),
-                contentDescription = "Internet High Five",
-                modifier = Modifier
-                    .size(220.dp)
-                    .padding(bottom = 16.dp),
-                contentScale = ContentScale.Fit
-            )
+        Text(
+            text = "Internet High Five!",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White
+        )
+        Text(
+            text = "Celebrate that thing that just happened",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            modifier = Modifier.padding(top = 4.dp)
+        )
 
-            Text(
-                text = "Internet High Five!",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White
-            )
-            Text(
-                text = "Celebrate that thing that just happened",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
+        Spacer(Modifier.height(64.dp))
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
         OutlinedTextField(
             value = username,
             onValueChange = {
@@ -160,7 +154,8 @@ fun LoginScreen(
                 }
             )
         }
-        }
+
+        Spacer(Modifier.height(32.dp))
     }
     }
 }
