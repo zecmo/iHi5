@@ -22,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zecmo.internethighfive.navigation.Screen
 import com.zecmo.internethighfive.ui.*
+import com.zecmo.internethighfive.ui.theme.GradientSettings
 import com.zecmo.internethighfive.ui.theme.InternetHighFiveTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,9 +64,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        GradientSettings.init(applicationContext)
+
         enableEdgeToEdge()
         setContent {
-            InternetHighFiveTheme {
+            // Forced dark: the app now paints its own navy->gray gradient background on
+            // every screen regardless of system theme, so text colors must stay light too.
+            InternetHighFiveTheme(darkTheme = true, dynamicColor = false) {
                 val navController = rememberNavController()
                 val authViewModel: AuthViewModel = viewModel()
                 val friendsViewModel: FriendsViewModel = viewModel()
@@ -93,6 +98,7 @@ class MainActivity : ComponentActivity() {
                             onNavigateToHighFive = { userId ->
                                 navController.navigate("${Screen.HighFive.route}/$userId")
                             },
+                            onNavigateToGradientDebug = { navController.navigate(Screen.GradientDebug.route) },
                             viewModel = friendsViewModel
                         )
                     }
@@ -132,6 +138,9 @@ class MainActivity : ComponentActivity() {
                             onNavigateBack = { navController.popBackStack() },
                             viewModel = friendsViewModel
                         )
+                    }
+                    composable(Screen.GradientDebug.route) {
+                        GradientDebugScreen(onNavigateBack = { navController.popBackStack() })
                     }
                 }
 

@@ -14,6 +14,7 @@ import android.os.VibratorManager
 import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
+import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -176,6 +178,8 @@ fun HighFiveScreen(
     val waitingName = if (bothConnected) partnerName else (inviteTargetName ?: partnerName)
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -272,7 +276,7 @@ private fun WaitingContent(partnerName: String, message: String? = null) {
             modifier = Modifier.size(120.dp).alpha(alpha),
             tint = MaterialTheme.colorScheme.primary
         )
-        Text("Hand is Up! ✋", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Text("Hand is Up! ✋", style = MaterialTheme.typography.headlineSmall, color = Color.White, textAlign = TextAlign.Center)
     }
 }
 
@@ -359,8 +363,8 @@ private fun WaitingTapContent(partnerName: String) {
             modifier = Modifier.size(160.dp).alpha(alpha),
             tint = MaterialTheme.colorScheme.secondary
         )
-        Text("Waiting for $partnerName…", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-        Text("You tapped! Hold on…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Waiting for $partnerName…", style = MaterialTheme.typography.headlineSmall, color = Color.White, textAlign = TextAlign.Center)
+        Text("You tapped! Hold on…", style = MaterialTheme.typography.bodyLarge, color = Color.White)
     }
 }
 
@@ -389,7 +393,7 @@ private fun SuccessContent(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).scale(scale)
     ) {
         Text("HIGH FIVE!", fontSize = 48.sp, fontWeight = FontWeight.Black, color = color)
-        Text(label, fontSize = 32.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text(label, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
         LinearProgressIndicator(
             progress = { quality },
             modifier = Modifier.fillMaxWidth(0.6f).height(12.dp),

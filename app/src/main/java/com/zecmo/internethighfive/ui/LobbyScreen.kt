@@ -1,6 +1,8 @@
 package com.zecmo.internethighfive.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +26,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.R
+import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +34,7 @@ fun LobbyScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToFriends: () -> Unit,
     onNavigateToHighFive: (String) -> Unit,
+    onNavigateToGradientDebug: () -> Unit = {},
     viewModel: FriendsViewModel = viewModel()
 ) {
     val friends by viewModel.friends.collectAsState()
@@ -48,6 +52,8 @@ fun LobbyScreen(
     var selectedFriend by remember { mutableStateOf<User?>(null) }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
+        containerColor = Color.Transparent,
         bottomBar = {
             Surface(
                 tonalElevation = 3.dp,
@@ -82,7 +88,16 @@ fun LobbyScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateToProfile) {
+                    // Long-press is a hidden entry point to the gradient debug tuner.
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .combinedClickable(
+                                onClick = onNavigateToProfile,
+                                onLongClick = onNavigateToGradientDebug
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(Icons.Default.Person, contentDescription = "Profile")
                     }
                 },
@@ -172,11 +187,13 @@ fun LobbyScreen(
                             Text(
                                 text = "No friends yet!",
                                 style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
                                 textAlign = TextAlign.Center
                             )
                             Text(
                                 text = "Add some friends to start high fiving!",
                                 style = MaterialTheme.typography.bodyLarge,
+                                color = Color.White,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(top = 8.dp)
                             )
@@ -262,13 +279,13 @@ private fun FriendCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = user.username,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
                 )
                 Text(
                     text = if (user.isOnline) "Active now" else "Last active: ${formatTimestamp(user.lastLoginAt)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (user.isOnline) MaterialTheme.colorScheme.primary 
-                           else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White
                 )
             }
 

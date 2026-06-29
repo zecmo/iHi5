@@ -1,5 +1,6 @@
 package com.zecmo.internethighfive.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,12 +9,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.zecmo.internethighfive.data.User
+import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,6 +37,8 @@ fun FriendsScreen(
         .filter { searchQuery.isBlank() || it.username.contains(searchQuery, ignoreCase = true) }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
+        containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Find Fivers") },
@@ -96,7 +101,10 @@ private fun FindFiversCard(
     onAddFriend: () -> Unit,
     onHighFive: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.35f))
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -111,11 +119,11 @@ private fun FindFiversCard(
             ) {}
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(user.username, style = MaterialTheme.typography.titleMedium)
+                Text(user.username, style = MaterialTheme.typography.titleMedium, color = Color.White)
                 Text(
                     if (user.isOnline) "Online" else "Offline",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White
                 )
             }
 
