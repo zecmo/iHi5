@@ -22,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.zecmo.internethighfive.navigation.Screen
 import com.zecmo.internethighfive.ui.*
+import com.zecmo.internethighfive.ui.theme.GradientSettings
 import com.zecmo.internethighfive.ui.theme.InternetHighFiveTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +63,8 @@ class MainActivity : ComponentActivity() {
                 else -> requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+
+        GradientSettings.init(applicationContext)
 
         enableEdgeToEdge()
         setContent {

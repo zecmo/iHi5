@@ -78,6 +78,12 @@ fun LoginScreen(
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color.White
             )
+            Text(
+                text = "Celebrate that thing that just happened",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
 
         Column(

@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.zecmo.internethighfive.ui.theme.GradientSettings
 import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
@@ -18,6 +19,8 @@ import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GradientDebugScreen(onNavigateBack: () -> Unit) {
+    val context = LocalContext.current
+    var saved by remember { mutableStateOf(false) }
     // Read/write through GradientSettings directly so every other screen's
     // appBackgroundBrush() recomposes live as these sliders move.
     var navy by remember { mutableStateOf(GradientSettings.navy) }
@@ -50,6 +53,7 @@ fun GradientDebugScreen(onNavigateBack: () -> Unit) {
                 onColorChange = {
                     navy = it
                     GradientSettings.navy = it
+                    saved = false
                 }
             )
             ColorTuner(
@@ -58,25 +62,27 @@ fun GradientDebugScreen(onNavigateBack: () -> Unit) {
                 onColorChange = {
                     gray = it
                     GradientSettings.gray = it
+                    saved = false
                 }
             )
 
             Spacer(Modifier.weight(1f))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+            ) {
                 OutlinedButton(onClick = {
                     GradientSettings.reset()
                     navy = GradientSettings.navy
                     gray = GradientSettings.gray
+                    saved = false
                 }) { Text("Reset to default") }
 
-                OutlinedButton(onClick = {
-                    val hex = "navy=#%02X%02X%02X gray=#%02X%02X%02X".format(
-                        (navy.red * 255).toInt(), (navy.green * 255).toInt(), (navy.blue * 255).toInt(),
-                        (gray.red * 255).toInt(), (gray.green * 255).toInt(), (gray.blue * 255).toInt()
-                    )
-                    android.util.Log.i("GradientDebug", hex)
-                }) { Text("Log hex values") }
+                Button(onClick = {
+                    GradientSettings.save(context)
+                    saved = true
+                }) { Text(if (saved) "Saved!" else "Save your colors") }
             }
         }
     }
