@@ -4,7 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.zecmo.internethighfive.notification.NotificationHelper
-import com.zecmo.internethighfive.notifications.FirebaseMessagingService
+
 
 class iHi5App : Application() {
     companion object {
@@ -26,7 +26,6 @@ class iHi5App : Application() {
 
         // Create notification channels at startup so they exist before any FCM message arrives
         NotificationHelper.createNotificationChannel(this)
-        FirebaseMessagingService.createChannelStatic(this)
 
         // Supabase client is initialized lazily via SupabaseClient singleton
         Log.d(TAG, "iHi5App started")

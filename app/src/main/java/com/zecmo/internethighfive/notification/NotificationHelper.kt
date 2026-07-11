@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -17,18 +19,35 @@ import com.zecmo.internethighfive.R
 
 object NotificationHelper {
     private const val TAG = "NotificationHelper"
-    private const val CHANNEL_ID = "high_five_requests"
+    // A channel's sound is locked in at creation time and cannot be changed afterwards
+    // (recreating the same id restores the old settings). To ship the custom sound we use
+    // a fresh channel id; the user's own settings on this channel are never overwritten.
+    const val CHANNEL_ID = "high_five_requests_v2"
     private const val CHANNEL_NAME = "High Five Requests"
     private const val CHANNEL_DESCRIPTION = "Notifications for incoming high five requests"
 
+    // Legacy channels we no longer post to. Removed so users don't see stale/duplicate entries.
+    private val LEGACY_CHANNEL_IDS = listOf("high_five_requests", "high_five_channel")
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance).apply {
-                description = CHANNEL_DESCRIPTION
-            }
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // createNotificationChannel is idempotent: if the channel already exists this is a
+            // no-op and any customizations the user made (silenced it, changed importance) are kept.
+            val soundUri = Uri.parse("android.resource://${context.packageName}/${R.raw.notification_hifi}")
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .build()
+            val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH).apply {
+                description = CHANNEL_DESCRIPTION
+                setSound(soundUri, audioAttributes)
+            }
             notificationManager.createNotificationChannel(channel)
+
+            // Clean up channels from earlier versions that nothing posts to anymore.
+            LEGACY_CHANNEL_IDS.forEach { notificationManager.deleteNotificationChannel(it) }
         }
     }
 
