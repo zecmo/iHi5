@@ -5,8 +5,8 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.media.AudioManager
-import android.media.ToneGenerator
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -51,6 +51,29 @@ fun HighFiveScreen(
     val error by viewModel.error.collectAsState()
     val partnerStats by viewModel.partnerStats.collectAsState()
     val sessionMessage = highFiveSession?.message?.takeIf { it.isNotBlank() }
+
+    // SoundPool for result SFX
+    val soundPool = remember {
+        SoundPool.Builder()
+            .setMaxStreams(1)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    }
+    val sfxIds = remember {
+        mapOf(
+            "perfect" to soundPool.load(context, com.zecmo.internethighfive.R.raw.sfx_perfect, 1),
+            "great"   to soundPool.load(context, com.zecmo.internethighfive.R.raw.sfx_great,   1),
+            "good"    to soundPool.load(context, com.zecmo.internethighfive.R.raw.sfx_good,    1),
+            "ok"      to soundPool.load(context, com.zecmo.internethighfive.R.raw.sfx_ok,      1),
+            "meh"     to soundPool.load(context, com.zecmo.internethighfive.R.raw.sfx_meh,     1)
+        )
+    }
+    DisposableEffect(Unit) { onDispose { soundPool.release() } }
 
     // Sensor + force tracking
     var currentForce by remember { mutableStateOf(0f) }
@@ -160,6 +183,15 @@ fun HighFiveScreen(
     LaunchedEffect(highFiveState) {
         if (highFiveState is HighFiveState.Success) {
             viewModel.loadPartnerStats()
+            val quality = (highFiveState as HighFiveState.Success).quality
+            val key = when {
+                quality >= 1.0f -> "perfect"
+                quality >= 0.8f -> "great"
+                quality >= 0.6f -> "good"
+                quality >= 0.4f -> "ok"
+                else            -> "meh"
+            }
+            sfxIds[key]?.let { soundPool.play(it, 1f, 1f, 0, 0, 1f) }
         }
     }
 
