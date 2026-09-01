@@ -1,5 +1,6 @@
 package com.zecmo.internethighfive.ui
 
+import com.zecmo.internethighfive.data.friendlyError
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -245,7 +246,7 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "openSession failed", e)
-                _error.value = "Failed to open session: ${e.message}"
+                _error.value = friendlyError("Couldn't raise your hand", e)
             }
         }
     }
@@ -314,7 +315,7 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 applySession(joined)
             } catch (e: Exception) {
                 Log.e(TAG, "connectToUser failed", e)
-                _error.value = "Error connecting: ${e.message}"
+                _error.value = friendlyError("Couldn't connect", e)
             }
         }
     }

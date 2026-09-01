@@ -32,6 +32,15 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            // The session is restored from storage asynchronously, ~1s after the client
+            // is created. Anything issued before then goes out as role `anon` rather
+            // than `authenticated`: SELECTs come back silently empty and INSERTs fail
+            // with RLS 42501. Wait for it before reporting the user as logged in.
+            try {
+                supabase.auth.awaitInitialization()
+            } catch (e: Exception) {
+                Log.e(TAG, "auth init failed", e)
+            }
             userPreferences.userFlow.collect { credentials ->
                 _authState.value = if (credentials != null) {
                     AuthState.LoggedIn(credentials.id, credentials.username)

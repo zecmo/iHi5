@@ -1,5 +1,6 @@
 package com.zecmo.internethighfive.ui
 
+import com.zecmo.internethighfive.data.friendlyError
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -79,7 +80,7 @@ class AddUserViewModel(application: Application) : AndroidViewModel(application)
                 _isSuccess.value = true
             } catch (e: Exception) {
                 Log.e(TAG, "addFriendByUsername failed", e)
-                _error.value = e.message ?: "Unknown error"
+                _error.value = friendlyError("Couldn't add that friend", e)
             } finally {
                 _isLoading.value = false
             }

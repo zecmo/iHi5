@@ -1,12 +1,15 @@
 package com.zecmo.internethighfive.ui
 
+import com.zecmo.internethighfive.data.friendlyError
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.zecmo.internethighfive.SupabaseClient
+import com.zecmo.internethighfive.data.HighFiveSession
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.data.UserPreferences
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.PostgresAction
@@ -77,6 +80,20 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
     val notificationPrefs: StateFlow<Map<String, String>> = _notificationPrefs.asStateFlow()
 
     private var heartbeatJob: Job? = null
+    // Defaults for a first run with nothing saved: most recently online at the top.
+    private val _sortMode = MutableStateFlow(SortMode.RECENT)
+    val sortMode: StateFlow<SortMode> = _sortMode.asStateFlow()
+
+    // Flips whichever mode is active out of its natural order, rather than meaning a
+    // fixed ascending/descending: "newest first" and "A-Z" are both the useful default
+    // for their mode, so a single asc/desc flag would invert one of them on every switch.
+    private val _sortReversed = MutableStateFlow(false)
+    val sortReversed: StateFlow<Boolean> = _sortReversed.asStateFlow()
+
+    /** friendId -> completed high fives between them and me. Empty until first loaded. */
+    private val _highFiveCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val highFiveCounts: StateFlow<Map<String, Int>> = _highFiveCounts.asStateFlow()
+
     private var usersChannel: io.github.jan.supabase.realtime.RealtimeChannel? = null
 
     // Local cache of fields we actually care about for UI changes.
@@ -87,7 +104,29 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
     private val cachedLastLoginAt = mutableMapOf<String, Long>()
 
     init {
+        // Restore the saved ordering. Collected rather than read once so a write from
+        // anywhere stays reflected; guarded below so our own writes don't re-sort.
         viewModelScope.launch {
+            userPreferences.lobbySortFlow.collect { prefs ->
+                val restored = prefs.modeName
+                    ?.let { name -> SortMode.entries.firstOrNull { it.name == name } }
+                    ?: SortMode.RECENT
+                if (restored != _sortMode.value || prefs.reversed != _sortReversed.value) {
+                    _sortMode.value = restored
+                    _sortReversed.value = prefs.reversed
+                    rebuildFriendsList()
+                }
+            }
+        }
+        viewModelScope.launch {
+            // Same reason as AuthViewModel: every query below is RLS-gated on the
+            // `authenticated` role, so none of them may run before the stored session
+            // has finished loading.
+            try {
+                supabase.auth.awaitInitialization()
+            } catch (e: Exception) {
+                Log.e(TAG, "auth init failed", e)
+            }
             userPreferences.userFlow.collect { credentials ->
                 if (credentials != null && credentials.id != _currentUserId.value) {
                     _currentUserId.value = credentials.id
@@ -153,7 +192,6 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                     val usersDeferred = async {
                         supabase.from("users").select().decodeList<User>()
                             .filter { it.id != selfId }
-                            .sortedByDescending { it.isOnline }
                     }
                     val friendIdsDeferred = async { fetchFriendIds(selfId) }
                     val users = usersDeferred.await()
@@ -161,6 +199,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                     _allUsers.value = users
                     _friendIds.value = ids
                     rebuildFriendsList(users)
+                    if (_sortMode.value == SortMode.HIGH_FIVES) loadHighFiveCounts()
                     users.forEach { u ->
                         cachedHandRaised[u.id] = u.handRaised
                         cachedCurrentSession[u.id] = u.currentSession
@@ -175,7 +214,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "loadData failed", e)
-                _error.value = "Failed to load: ${e.message}"
+                _error.value = friendlyError("Couldn't load your friends", e)
             } finally {
                 _isLoading.value = false
             }
@@ -189,7 +228,6 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 val selfId = _currentUserId.value
                 val users = supabase.from("users").select().decodeList<User>()
                     .filter { it.id != selfId }
-                    .sortedByDescending { it.isOnline }
                 _allUsers.value = users
                 rebuildFriendsList(users)
                 users.forEach { u ->
@@ -205,7 +243,95 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
 
     private fun rebuildFriendsList(users: List<User> = _allUsers.value) {
         val ids = _friendIds.value
-        _friends.value = users.filter { it.id in ids }
+        _friends.value = users.filter { it.id in ids }.sortedWith(sortComparator())
+    }
+
+    /**
+     * RECENT sorts by `lastLoginAt` descending, which puts everyone currently online at
+     * the top for free — online is defined as a heartbeat inside the last 60s, so their
+     * timestamps are always the newest — and then orders the rest most-recent-first.
+     * A boolean sort on `isOnline` (the old behaviour) left every tie in whatever order
+     * the server happened to return, which is why the list looked shuffled.
+     */
+    private fun sortComparator(): Comparator<User> {
+        val natural: Comparator<User> = when (_sortMode.value) {
+            SortMode.HIGH_FIVES -> {
+                val counts = _highFiveCounts.value
+                // Most-fived first; ties fall back to recency so a wall of zeroes is
+                // still ordered usefully rather than arbitrarily.
+                compareByDescending<User> { counts[it.id] ?: 0 }
+                    .thenByDescending { it.lastLoginAt }
+                    .thenBy { it.username.lowercase() }
+            }
+            SortMode.RECENT -> compareByDescending<User> { it.lastLoginAt }
+                .thenBy { it.username.lowercase() }
+            SortMode.ALPHABETICAL -> compareBy<User> { it.username.lowercase() }
+        }
+        return if (_sortReversed.value) natural.reversed() else natural
+    }
+
+    /** Manual retry after a failed load — clears the banner and refetches. */
+    fun retryLoad() {
+        _error.value = null
+        loadData()
+    }
+
+    fun setSortMode(mode: SortMode) {
+        if (_sortMode.value == mode) return
+        _sortMode.value = mode
+        rebuildFriendsList()
+        persistSort()
+        // Counts are fetched only when this ordering is actually in use — two extra
+        // queries on demand, and always current at the moment they matter.
+        if (mode == SortMode.HIGH_FIVES) loadHighFiveCounts()
+    }
+
+    /**
+     * Counts completed five-for-five sessions per friend in two queries total (one for
+     * each side of the pairing) rather than a round trip per friend.
+     *
+     * Matches the friend-detail sheet's definition — completed, excluding the TooSlow
+     * sentinel — so the ordering here and the number shown there can't disagree.
+     */
+    fun loadHighFiveCounts() {
+        val myId = _currentUserId.value ?: return
+        viewModelScope.launch {
+            try {
+                val asInitiator = supabase.from("high_five_sessions")
+                    .select { filter { eq("initiator_id", myId); eq("completed", true) } }
+                    .decodeList<HighFiveSession>()
+                val asPartner = supabase.from("high_five_sessions")
+                    .select { filter { eq("partner_id", myId); eq("completed", true) } }
+                    .decodeList<HighFiveSession>()
+                _highFiveCounts.value = (asInitiator + asPartner)
+                    .filter { it.quality != HighFiveSession.TOO_SLOW }
+                    .mapNotNull { session ->
+                        if (session.initiatorId == myId) session.partnerId else session.initiatorId
+                    }
+                    .filter { it.isNotEmpty() }
+                    .groupingBy { it }
+                    .eachCount()
+                rebuildFriendsList()
+            } catch (e: Exception) {
+                Log.e(TAG, "loadHighFiveCounts failed", e)
+            }
+        }
+    }
+
+    fun toggleSortDirection() {
+        _sortReversed.value = !_sortReversed.value
+        rebuildFriendsList()
+        persistSort()
+    }
+
+    private fun persistSort() {
+        viewModelScope.launch {
+            try {
+                userPreferences.saveLobbySort(_sortMode.value.name, _sortReversed.value)
+            } catch (e: Exception) {
+                Log.e(TAG, "saveLobbySort failed", e)
+            }
+        }
     }
 
     private suspend fun fetchFriendIds(userId: String): List<String> {
@@ -295,7 +421,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 reloadFriendIds()
             } catch (e: Exception) {
                 Log.e(TAG, "addFriend failed", e)
-                _error.value = "Failed to add friend: ${e.message}"
+                _error.value = friendlyError("Couldn't add that friend", e)
             }
         }
     }
@@ -323,7 +449,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 _addFriendSuccess.value = true
             } catch (e: Exception) {
                 Log.e(TAG, "addFriendByUsername failed", e)
-                _error.value = e.message ?: "Unknown error"
+                _error.value = friendlyError("Couldn't add that friend", e)
             } finally {
                 _addFriendLoading.value = false
             }
@@ -350,7 +476,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 reloadFriendIds()
             } catch (e: Exception) {
                 Log.e(TAG, "removeFriend failed", e)
-                _error.value = "Failed to remove friend: ${e.message}"
+                _error.value = friendlyError("Couldn't remove that friend", e)
             }
         }
     }
@@ -367,7 +493,7 @@ class FriendsViewModel(application: Application) : AndroidViewModel(application)
                 _notificationPrefs.value = _notificationPrefs.value + (friendId to pref)
             } catch (e: Exception) {
                 Log.e(TAG, "setNotificationPref failed", e)
-                _error.value = "Failed to update notification setting: ${e.message}"
+                _error.value = friendlyError("Couldn't save that setting", e)
             }
         }
     }
@@ -508,3 +634,10 @@ private data class RecipientPrefRow(
     @kotlinx.serialization.SerialName("user_id") val userId: String,
     @kotlinx.serialization.SerialName("notification_pref") val notificationPref: String? = null
 )
+
+/** How the lobby friends list is ordered. */
+enum class SortMode(val label: String) {
+    HIGH_FIVES("Most Hi-5s"),
+    RECENT("Recency"),
+    ALPHABETICAL("Name (A–Z)")
+}

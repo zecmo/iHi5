@@ -28,6 +28,13 @@ data class User(
     val hasActiveHighFive: Boolean
         get() = handRaised && (System.currentTimeMillis() - raisedHandAt < HAND_RAISED_THRESHOLD)
 
+    /**
+     * Bounded by liveness on purpose. `current_session` is only ever cleared by the
+     * owner's own device — on leaving the high-five screen, or on next app launch — so
+     * a kill, crash, or dropped write leaves the row set indefinitely and everyone else
+     * sees a permanent "High Fiving!". Someone whose heartbeat has stopped cannot be in
+     * a session, so treat the flag as expired once they are offline.
+     */
     val isInSession: Boolean
-        get() = currentSession.isNotEmpty()
+        get() = currentSession.isNotEmpty() && isOnline
 }

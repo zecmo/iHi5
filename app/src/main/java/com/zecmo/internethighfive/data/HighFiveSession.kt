@@ -23,4 +23,9 @@ data class HighFiveSession(
     val completed: Boolean = false,
     val quality: String = "",
     val message: String = ""
-)
+) {
+    companion object {
+        /** `quality` sentinel written when the two taps never synced. Not a real five. */
+        const val TOO_SLOW = "TooSlow"
+    }
+}

@@ -53,6 +53,9 @@ fun LobbyScreen(
     }
     val placeholder = remember { placeholders.random() }
     var selectedFriend by remember { mutableStateOf<User?>(null) }
+    val sortMode by viewModel.sortMode.collectAsState()
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    val sortReversed by viewModel.sortReversed.collectAsState()
 
     Scaffold(
         modifier = Modifier.fillMaxSize().background(appBackgroundBrush()),
@@ -114,6 +117,57 @@ fun LobbyScreen(
                     }
                 },
                 actions = {
+                    // Sort lives next to search: both are "how do I find someone" tools,
+                    // and the bar is the only always-visible surface above the list.
+                    Box {
+                        IconButton(onClick = { sortMenuOpen = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort friends")
+                        }
+                        DropdownMenu(
+                            expanded = sortMenuOpen,
+                            onDismissRequest = { sortMenuOpen = false }
+                        ) {
+                            SortMode.entries.forEach { mode ->
+                                val selected = mode == sortMode
+                                DropdownMenuItem(
+                                    text = { Text(mode.label) },
+                                    onClick = {
+                                        if (selected) {
+                                            // Re-picking the active mode flips its
+                                            // direction; the menu stays open so the arrow
+                                            // visibly turns over and can be tapped again.
+                                            viewModel.toggleSortDirection()
+                                        } else {
+                                            viewModel.setSortMode(mode)
+                                            sortMenuOpen = false
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        if (selected) {
+                                            Icon(Icons.Default.Check, contentDescription = null)
+                                        } else {
+                                            Spacer(Modifier.size(24.dp))
+                                        }
+                                    },
+                                    // Arrow only on the active row — it is that row's
+                                    // toggle, so showing it on an inactive one implies a
+                                    // control that isn't there. Down = the mode's natural
+                                    // order (newest first, A first); up = flipped.
+                                    trailingIcon = if (selected) {
+                                        {
+                                            Icon(
+                                                if (sortReversed) Icons.Default.ArrowUpward
+                                                else Icons.Default.ArrowDownward,
+                                                contentDescription =
+                                                    if (sortReversed) "Reversed — tap to restore"
+                                                    else "Tap again to reverse"
+                                            )
+                                        }
+                                    } else null
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = onNavigateToFriends) {
                         Icon(Icons.Default.Search, contentDescription = "Search Friends")
                     }
@@ -188,7 +242,36 @@ fun LobbyScreen(
                     }
                 }
 
-                if (friends.isEmpty()) {
+                // Only claim they have no friends when the load actually succeeded.
+                // A failed fetch also yields an empty list, and telling someone with 20
+                // friends "No friends yet!" reads as data loss rather than a hiccup.
+                if (friends.isEmpty() && error != null) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Couldn't load your friends",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Check your connection and try again.",
+                                color = Color.White,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                            Button(
+                                onClick = { viewModel.retryLoad() },
+                                modifier = Modifier.padding(top = 16.dp)
+                            ) {
+                                Text("Retry")
+                            }
+                        }
+                    }
+                } else if (friends.isEmpty() && !isLoading) {
                     item {
                         Column(
                             modifier = Modifier

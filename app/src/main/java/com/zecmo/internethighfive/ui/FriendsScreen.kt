@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
@@ -56,6 +57,15 @@ fun FriendsScreen(
                 onValueChange = { searchQuery = it },
                 placeholder = { Text("Search for Fiver") },
                 singleLine = true,
+                // Only shown with text to clear, so it never occupies the field when
+                // there is nothing to undo.
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
             Box(modifier = Modifier.fillMaxSize()) {
@@ -72,8 +82,20 @@ fun FriendsScreen(
                         } else {
                             "No new fivers found" to "Everyone you know is already a friend!"
                         }
-                        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+                        // Explicit white: this sits on the app gradient, not a surface,
+                        // so the default onSurface colour renders near-black on it.
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 } else {
                     LazyColumn(
