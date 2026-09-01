@@ -44,6 +44,8 @@ import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 fun HighFiveScreen(
     partnerId: String,
     onNavigateBack: () -> Unit,
+    /** Rematch: start a fresh session inviting the same partner. */
+    onRetryWithPartner: (partnerId: String, partnerName: String) -> Unit = { _, _ -> },
     viewModel: HighFiveViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -257,6 +259,11 @@ fun HighFiveScreen(
         if (currentUser?.id == it.initiatorId) it.partnerUsername else it.initiatorUsername
     }?.takeIf { it.isNotEmpty() } ?: "Partner"
 
+    // Whoever we just fived — the other side of the row, from our own perspective.
+    val resolvedPartnerId = highFiveSession?.let {
+        if (currentUser?.id == it.initiatorId) it.partnerId else it.initiatorId
+    }?.takeIf { it.isNotEmpty() }
+
     // For a direct invite, we know the target's name up front (it rides in the nav arg)
     // even before they join — so we can name them instead of showing "Finding Partner…".
     val inviteTargetName = remember(partnerId) {
@@ -310,7 +317,18 @@ fun HighFiveScreen(
                             quality = (highFiveState as HighFiveState.Success).quality,
                             message = sessionMessage,
                             partnerName = partnerName,
-                            stats = partnerStats
+                            stats = partnerStats,
+                            onDone = onNavigateBack,
+                            onRetry = {
+                                val pid = resolvedPartnerId
+                                // Without a partner id there is nobody to rematch, so
+                                // fall back to the lobby rather than doing nothing.
+                                if (pid != null) {
+                                    onRetryWithPartner(pid, partnerName)
+                                } else {
+                                    onNavigateBack()
+                                }
+                            }
                         )
                         DebugReadout(timeDiffMs = lastTimeDiffMs, peakForce = peakForce)
                     }
@@ -524,7 +542,9 @@ private fun SuccessContent(
     quality: Float,
     message: String? = null,
     partnerName: String = "Partner",
-    stats: PartnerStats? = null
+    stats: PartnerStats? = null,
+    onDone: () -> Unit = {},
+    onRetry: () -> Unit = {}
 ) {
     val (label, color) = when {
         quality >= 1.0f -> "PERFECT! 🌟" to Color(0xFFFFD700)
@@ -606,6 +626,17 @@ private fun SuccessContent(
                         }
                 }
             }
+        }
+        Spacer(Modifier.height(8.dp))
+        // Top three tiers read as a win, so the action is to finish. The bottom two
+        // read as a miss, so it offers a rematch with the same partner. The 0.6f split
+        // is the same boundary the label and colour above use, so they cannot disagree.
+        val isWin = quality >= 0.6f
+        Button(
+            onClick = if (isWin) onDone else onRetry,
+            modifier = Modifier.fillMaxWidth(0.6f)
+        ) {
+            Text(if (isWin) "Done" else "Retry")
         }
     }
 }

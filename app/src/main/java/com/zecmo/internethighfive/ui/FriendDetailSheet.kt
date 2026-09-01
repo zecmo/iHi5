@@ -30,8 +30,16 @@ fun FriendDetailSheet(
     var showRemoveConfirm by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
 
+    // Gated on currentUser: loadStatsForFriend needs our own id and silently returns
+    // without it, leaving the spinner running with nothing to retry it. This ViewModel
+    // loads currentUser asynchronously, so on the first open after launch it is still
+    // null — which is why the sheet only worked on the second open.
+    val statsUser by statsViewModel.currentUser.collectAsState()
+    LaunchedEffect(friend.id, statsUser) {
+        if (statsUser != null) statsViewModel.loadStatsForFriend(friend.id)
+    }
+    // Notification prefs don't depend on our id, so they load straight away.
     LaunchedEffect(friend.id) {
-        statsViewModel.loadStatsForFriend(friend.id)
         pref = friendsViewModel.fetchNotificationPref(friend.id)
     }
     DisposableEffect(Unit) {

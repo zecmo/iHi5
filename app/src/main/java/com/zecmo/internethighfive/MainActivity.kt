@@ -110,7 +110,23 @@ class MainActivity : ComponentActivity() {
                         val userId = backStackEntry.arguments?.getString("userId") ?: return@composable
                         HighFiveScreen(
                             partnerId = userId,
-                            onNavigateBack = { navController.popBackStack() }
+                            onNavigateBack = { navController.popBackStack() },
+                            onRetryWithPartner = { pid, pname ->
+                                // popUpTo(inclusive) REPLACES this screen rather than
+                                // stacking another on top: a pile of live high-five
+                                // screens each hold their own session and fire their own
+                                // invites on the way out.
+                                // Message is deliberately empty — it rides in the route
+                                // as a raw path segment, and a "/" in it would break
+                                // parsing. A rematch needs no occasion text anyway.
+                                navController.navigate(
+                                    "${Screen.HighFive.route}/invite:$pid:$pname:"
+                                ) {
+                                    popUpTo("${Screen.HighFive.route}/{userId}") {
+                                        inclusive = true
+                                    }
+                                }
+                            }
                         )
                     }
                     composable(Screen.Friends.route) {

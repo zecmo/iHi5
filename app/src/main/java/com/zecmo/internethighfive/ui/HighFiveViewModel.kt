@@ -9,6 +9,7 @@ import com.zecmo.internethighfive.SupabaseClient
 import com.zecmo.internethighfive.data.HighFiveSession
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.data.UserPreferences
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -95,6 +96,14 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
+            // The session restores from storage asynchronously; this lookup is RLS-gated,
+            // so running it first returns null and _currentUser would stay null forever
+            // (the collect only re-fires when credentials change, which they won't).
+            try {
+                supabase.auth.awaitInitialization()
+            } catch (e: Exception) {
+                Log.e(TAG, "auth init failed", e)
+            }
             userPreferences.userFlow.collect { credentials ->
                 if (credentials != null && _currentUser.value?.id != credentials.id) {
                     _currentUser.value = supabase.from("users")

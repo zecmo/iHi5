@@ -22,10 +22,14 @@
         android:theme="@style/Theme.iHi5"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+        <!-- Portrait-locked: the slap gesture flings the device hard enough to trigger
+             a rotation mid-high-five, which would tear down and recreate the activity
+             (and its live session) at the worst possible moment. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.iHi5">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
