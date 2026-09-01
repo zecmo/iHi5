@@ -80,7 +80,7 @@ fun HighFiveScreen(
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
     // ToneGenerator removed — audio tones stacked badly at accelerometer game rate
 
-    fun vibrate(force: Float) {
+    fun vibrateOnTap() {
         try {
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
@@ -89,31 +89,24 @@ fun HighFiveScreen(
                 context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val ms = when {
-                    force > 15f -> 200L; force > 10f -> 140L; force > 5f -> 80L; else -> 40L
-                }
-                val amp = when {
-                    force > 15f -> 255; force > 10f -> 200; force > 5f -> 150; else -> 100
-                }
-                vibrator.vibrate(VibrationEffect.createOneShot(ms, amp))
+                vibrator.vibrate(VibrationEffect.createOneShot(60L, 200))
             } else {
                 @Suppress("DEPRECATION")
                 vibrator.vibrate(60L)
             }
-            // No audio tone — the accelerometer fires at game rate so tones stack up rapidly
         } catch (e: Exception) {
             Log.e("HighFiveScreen", "vibrate failed", e)
         }
     }
 
+    // Accelerometer is used only for the TapContent force visual (scale/tint/label) —
+    // no vibration here anymore. Haptic fires once, on confirmed tap (see onTap below).
     val sensorListener = remember {
         object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
                 if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
                     val (x, y, z) = event.values
-                    val force = (sqrt(x * x + y * y + z * z) - 9.8f).coerceAtLeast(0f)
-                    currentForce = force
-                    if (force > 3f) vibrate(force)
+                    currentForce = (sqrt(x * x + y * y + z * z) - 9.8f).coerceAtLeast(0f)
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -274,7 +267,7 @@ fun HighFiveScreen(
                     TapContent(
                         currentForce = currentForce,
                         onTap = {
-                            viewModel.initiateHighFive()
+                            if (viewModel.initiateHighFive()) vibrateOnTap()
                         }
                     )
                 }
