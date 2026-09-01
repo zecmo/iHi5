@@ -8,6 +8,7 @@ import android.hardware.SensorManager
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Build
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.zecmo.internethighfive.BuildConfig
 import kotlinx.coroutines.delay
 import kotlin.math.sqrt
 import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
@@ -50,6 +52,7 @@ fun HighFiveScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val error by viewModel.error.collectAsState()
     val partnerStats by viewModel.partnerStats.collectAsState()
+    val lastTimeDiffMs by viewModel.lastTimeDiffMs.collectAsState()
     val sessionMessage = highFiveSession?.message?.takeIf { it.isNotBlank() }
 
     // SoundPool for result SFX
@@ -77,6 +80,8 @@ fun HighFiveScreen(
 
     // Sensor + force tracking
     var currentForce by remember { mutableStateOf(0f) }
+    // Hardest hit seen this session — debug readout only, for threshold tuning.
+    var peakForce by remember { mutableStateOf(0f) }
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
     // ToneGenerator removed — audio tones stacked badly at accelerometer game rate
 
@@ -99,14 +104,66 @@ fun HighFiveScreen(
         }
     }
 
-    // Accelerometer is used only for the TapContent force visual (scale/tint/label) —
-    // no vibration here anymore. Haptic fires once, on confirmed tap (see onTap below).
+    // A slap is two signals that arrive close together, not simultaneously: fingers hit
+    // the glass first, the impact impulse peaks a few ms later. Correlate over a window.
+    val slapDetector = remember { SlapDetector() }
+    slapDetector.onSlap = { if (viewModel.initiateHighFive()) vibrateOnTap() }
+
+    // Accelerometer drives the TapContent force visual AND the impact half of the slap
+    // gesture — no vibration here anymore. Haptic fires once, on a confirmed slap.
     val sensorListener = remember {
         object : SensorEventListener {
+            // One force excursion = one candidate slap. Hysteresis (threshold up,
+            // release down) keeps the chassis ringing from splitting into several.
+            private var aboveThreshold = false
+            private var firedThisExcursion = false
+            private var excursionJerk = 0f
+            private var lastUiPublishAt = 0L
+            private var prevForce = 0f
+            private var prevTsNs = 0L
             override fun onSensorChanged(event: SensorEvent) {
                 if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
                     val (x, y, z) = event.values
-                    currentForce = (sqrt(x * x + y * y + z * z) - 9.8f).coerceAtLeast(0f)
+                    val force = (sqrt(x * x + y * y + z * z) - 9.8f).coerceAtLeast(0f)
+                    // Detection below reads every sample; the UI state is throttled.
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastUiPublishAt >= FORCE_UI_PUBLISH_MS) {
+                        lastUiPublishAt = now
+                        currentForce = force
+                    }
+                    if (force > peakForce) peakForce = force
+
+                    // Rise rate, from the sensor's own clock — this is what tells a slap
+                    // apart from a shake. Peak force alone cannot; the two overlap.
+                    var jerk = 0f
+                    if (prevTsNs != 0L) {
+                        val dtS = (event.timestamp - prevTsNs) / 1_000_000_000f
+                        if (dtS > 0f) jerk = (force - prevForce) / dtS
+                    }
+                    prevForce = force
+                    prevTsNs = event.timestamp
+
+                    if (force > SLAP_FORCE_THRESHOLD) {
+                        if (!aboveThreshold) {
+                            aboveThreshold = true
+                            firedThisExcursion = false
+                            excursionJerk = 0f
+                        }
+                        // Tracked across the whole excursion, not just the crossing
+                        // sample: the crossing catches the gentlest part of the rise and
+                        // reading jerk there rejects even a 114G strike.
+                        if (jerk > excursionJerk) excursionJerk = jerk
+                        if (!firedThisExcursion && excursionJerk >= SLAP_JERK_THRESHOLD) {
+                            firedThisExcursion = true
+                            Log.d(
+                                "HighFiveScreen",
+                                "slap force=%.1f jerk=%.0f".format(force, excursionJerk)
+                            )
+                            slapDetector.onImpact()
+                        }
+                    } else if (aboveThreshold && force < SLAP_FORCE_RELEASE) {
+                        aboveThreshold = false
+                    }
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -114,11 +171,17 @@ fun HighFiveScreen(
     }
 
     DisposableEffect(Unit) {
-        sensorManager.registerListener(
-            sensorListener,
-            sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
-            SensorManager.SENSOR_DELAY_GAME
-        )
+        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        // Never let a sensor rate we can't get take the whole screen down: SENSOR_DELAY_FASTEST
+        // (0us) throws SecurityException on API 31+ without HIGH_SAMPLING_RATE_SENSORS, and OEM
+        // /GrapheneOS builds vary in what they'll grant. Ask for 200Hz, degrade to GAME instead.
+        val registered = try {
+            sensorManager.registerListener(sensorListener, accelerometer, SLAP_SENSOR_PERIOD_US)
+        } catch (e: SecurityException) {
+            Log.w("HighFiveScreen", "High-rate sensor denied, falling back to GAME rate", e)
+            sensorManager.registerListener(sensorListener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+        }
+        if (!registered) Log.w("HighFiveScreen", "Accelerometer unavailable — slap detection degraded")
         onDispose {
             sensorManager.unregisterListener(sensorListener)
         }
@@ -163,14 +226,16 @@ fun HighFiveScreen(
 
     // Each device runs its own local 3-2-1 the moment it sees a partner. Exact sync
     // isn't needed here — actual scoring uses server timestamps, not the countdown.
+    // The countdown is only a visual hint now — tapping is enabled immediately so a
+    // player can go early instead of waiting for it to reach zero.
     LaunchedEffect(bothConnected) {
         if (!bothConnected) return@LaunchedEffect
         if (highFiveState is HighFiveState.Success || highFiveState is HighFiveState.Error) return@LaunchedEffect
-        countdown = 3; delay(1000L)
-        countdown = 2; delay(1000L)
-        countdown = 1; delay(1000L)
-        countdown = null
         viewModel.readyToTap()
+        countdown = 3; delay(750L)
+        countdown = 2; delay(750L)
+        countdown = 1; delay(750L)
+        countdown = null
     }
 
     LaunchedEffect(highFiveState) {
@@ -240,21 +305,24 @@ fun HighFiveScreen(
 
             when {
                 highFiveState is HighFiveState.Success -> {
-                    SuccessContent(
-                        quality = (highFiveState as HighFiveState.Success).quality,
-                        message = sessionMessage,
-                        partnerName = partnerName,
-                        stats = partnerStats
-                    )
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        SuccessContent(
+                            quality = (highFiveState as HighFiveState.Success).quality,
+                            message = sessionMessage,
+                            partnerName = partnerName,
+                            stats = partnerStats
+                        )
+                        DebugReadout(timeDiffMs = lastTimeDiffMs, peakForce = peakForce)
+                    }
                 }
                 highFiveState is HighFiveState.Error -> {
-                    ErrorContent(
-                        message = (highFiveState as HighFiveState.Error).message,
-                        onRetry = onNavigateBack
-                    )
-                }
-                countdown != null -> {
-                    CountdownContent(count = countdown!!)
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        ErrorContent(
+                            message = (highFiveState as HighFiveState.Error).message,
+                            onRetry = onNavigateBack
+                        )
+                        DebugReadout(timeDiffMs = lastTimeDiffMs, peakForce = peakForce)
+                    }
                 }
                 !bothConnected -> {
                     WaitingContent(partnerName = waitingName, message = sessionMessage)
@@ -263,13 +331,17 @@ fun HighFiveScreen(
                     WaitingTapContent(partnerName = partnerName)
                 }
                 else -> {
-                    // Idle — tap area active
-                    TapContent(
-                        currentForce = currentForce,
-                        onTap = {
-                            if (viewModel.initiateHighFive()) vibrateOnTap()
-                        }
-                    )
+                    // Idle — tap area active. The countdown (if still running) overlays
+                    // as a hint only; it has no pointer input of its own, so taps pass
+                    // straight through to TapContent underneath.
+                    Box(contentAlignment = Alignment.Center) {
+                        TapContent(
+                            currentForce = currentForce,
+                            onMultiTouch = { slapDetector.onMultiTouch() },
+                            onBypassTap = { if (viewModel.initiateHighFive()) vibrateOnTap() }
+                        )
+                        countdown?.let { CountdownHint(count = it) }
+                    }
                 }
             }
         }
@@ -277,6 +349,32 @@ fun HighFiveScreen(
 }
 
 // ── Sub-screens ────────────────────────────────────────────────────────────────
+
+/**
+ * Debug-build-only tuning readout, pinned to the bottom of the result screen.
+ *
+ * `timeDiffMs` is the raw sync gap the quality tier was derived from, and `peakForce`
+ * is the hardest hit the accelerometer saw this session — the two numbers needed to
+ * recalibrate the scoring windows and [SLAP_FORCE_THRESHOLD] against real play. Emits
+ * nothing in release builds.
+ */
+@Composable
+private fun BoxScope.DebugReadout(timeDiffMs: Long?, peakForce: Float) {
+    if (!BuildConfig.DEBUG) return
+    val tier = timeDiffMs?.let {
+        when {
+            it < 100 -> "perfect"; it < 300 -> "great"; it < 500 -> "good"
+            it < 800 -> "ok"; it <= 3000 -> "meh"; else -> "tooSlow"
+        }
+    } ?: "—"
+    Text(
+        text = "debug · diff=${timeDiffMs?.let { "${it}ms" } ?: "—"} · tier=$tier · peak=${"%.1f".format(peakForce)}G · thr=${"%.0f".format(SLAP_FORCE_THRESHOLD)}G",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)
+    )
+}
 
 @Composable
 private fun WaitingContent(partnerName: String, message: String? = null) {
@@ -306,31 +404,35 @@ private fun WaitingContent(partnerName: String, message: String? = null) {
 }
 
 @Composable
-private fun CountdownContent(count: Int) {
-    val scale by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-        label = "scale"
-    )
+private fun CountdownHint(count: Int) {
     val color = when (count) {
         3 -> MaterialTheme.colorScheme.tertiary
         2 -> MaterialTheme.colorScheme.secondary
         else -> MaterialTheme.colorScheme.primary
     }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("GET READY", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // Purely a visual hint overlaid above TapContent — it declares no pointer input,
+    // so it never intercepts taps. 3-2-1 is a guide, not a lock.
+    Column(
+        modifier = Modifier.fillMaxSize().padding(top = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            "TAP WHENEVER YOU'RE READY",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Text(
             text = count.toString(),
-            fontSize = 120.sp,
+            fontSize = 64.sp,
             fontWeight = FontWeight.Black,
-            color = color,
-            modifier = Modifier.scale(scale)
+            color = color.copy(alpha = 0.5f)
         )
     }
 }
 
 @Composable
-private fun TapContent(currentForce: Float, onTap: () -> Unit) {
+private fun TapContent(currentForce: Float, onMultiTouch: () -> Unit, onBypassTap: () -> Unit) {
     val scale by animateFloatAsState(
         targetValue = (1f + currentForce / 25f).coerceIn(1f, 1.4f),
         animationSpec = tween(50),
@@ -344,22 +446,46 @@ private fun TapContent(currentForce: Float, onTap: () -> Unit) {
         },
         label = "tint"
     )
+    // pointerInput(Unit) only launches its coroutine once, so it would otherwise close
+    // over a stale callback from first composition — rememberUpdatedState keeps it live.
+    val latestOnMultiTouch = rememberUpdatedState(onMultiTouch)
+    val latestOnBypassTap = rememberUpdatedState(onBypassTap)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(24.dp),
         modifier = Modifier.pointerInput(Unit) {
             awaitPointerEventScope {
+                // Rising edge only — a held palm produces a stream of move events and
+                // should report contact once, not on every frame.
+                var wasMultiTouch = false
+                var wasPressed = false
                 while (true) {
                     val event = awaitPointerEvent()
-                    if (event.changes.any { it.pressed }) onTap()
+                    val pressed = event.changes.count { it.pressed }
+                    val isMultiTouch = pressed >= 2
+                    // TODO: accessibility setting to allow single-tap fallback (see backlog).
+                    if (isMultiTouch && !wasMultiTouch) latestOnMultiTouch.value.invoke()
+                    // Emulator only: any single press completes the high five outright.
+                    if (emulatorTapBypass && pressed >= 1 && !wasPressed) {
+                        latestOnBypassTap.value.invoke()
+                    }
+                    wasMultiTouch = isMultiTouch
+                    wasPressed = pressed >= 1
                 }
             }
         }
     ) {
-        Text("TAP!", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text("SLAP IT!", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+        if (emulatorTapBypass) {
+            Text(
+                "debug · emulator: tap anywhere",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Icon(
             Icons.Default.BackHand,
-            contentDescription = "Tap to high five",
+            contentDescription = "Slap the screen with your hand to high five",
             modifier = Modifier.size(220.dp).scale(scale),
             tint = tint
         )

@@ -81,6 +81,11 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
     private val _partnerStats = MutableStateFlow<PartnerStats?>(null)
     val partnerStats: StateFlow<PartnerStats?> = _partnerStats.asStateFlow()
 
+    // Raw sync gap behind the quality tier, surfaced for debug-build tuning. The
+    // current windows are guesses; these are the numbers needed to recalibrate them.
+    private val _lastTimeDiffMs = MutableStateFlow<Long?>(null)
+    val lastTimeDiffMs: StateFlow<Long?> = _lastTimeDiffMs.asStateFlow()
+
     private var sessionChannel: RealtimeChannel? = null
     private var pollingJob: Job? = null
     private var scored = false           // score the session exactly once
@@ -412,6 +417,7 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
         val tooSlow = timeDiff > MAX_HIGH_FIVE_DIFF_MS
         val quality = calculateQuality(timeDiff)
         Log.d(TAG, "scoreSession diff=${timeDiff}ms tooSlow=$tooSlow")
+        _lastTimeDiffMs.value = timeDiff
 
         // Both devices set their local terminal state identically from the same data.
         _highFiveState.value =

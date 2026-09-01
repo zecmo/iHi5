@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
                                 navController.navigate("${Screen.HighFive.route}/$userId")
                             },
                             onNavigateToGradientDebug = { navController.navigate(Screen.GradientDebug.route) },
+                            onNavigateToSlapTest = { navController.navigate(Screen.SlapTest.route) },
                             viewModel = friendsViewModel
                         )
                     }
@@ -141,6 +142,9 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(Screen.GradientDebug.route) {
                         GradientDebugScreen(onNavigateBack = { navController.popBackStack() })
+                    }
+                    composable(Screen.SlapTest.route) {
+                        SlapTestScreen(onNavigateBack = { navController.popBackStack() })
                     }
                 }
 

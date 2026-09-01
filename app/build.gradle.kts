@@ -40,6 +40,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // Needed for BuildConfig.DEBUG, which gates the on-screen tuning readout.
+        buildConfig = true
     }
     // Note: composeOptions / kotlinCompilerExtensionVersion removed —
     // Kotlin 2.0 uses the kotlin.plugin.compose plugin instead.

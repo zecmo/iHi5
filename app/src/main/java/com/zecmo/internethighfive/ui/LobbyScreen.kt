@@ -1,5 +1,6 @@
 package com.zecmo.internethighfive.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -24,17 +25,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import com.zecmo.internethighfive.BuildConfig
 import com.zecmo.internethighfive.data.User
 import com.zecmo.internethighfive.R
 import com.zecmo.internethighfive.ui.theme.appBackgroundBrush
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LobbyScreen(
     onNavigateToProfile: () -> Unit,
     onNavigateToFriends: () -> Unit,
     onNavigateToHighFive: (String) -> Unit,
     onNavigateToGradientDebug: () -> Unit = {},
+    onNavigateToSlapTest: () -> Unit = {},
     viewModel: FriendsViewModel = viewModel()
 ) {
     val friends by viewModel.friends.collectAsState()
@@ -79,10 +82,20 @@ fun LobbyScreen(
         },
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
+                    // Debug builds only: long-press the title to reach the slap tuner.
                     Text(
                         text = "internet Hi-5",
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (BuildConfig.DEBUG) {
+                                    Modifier.combinedClickable(
+                                        onClick = {},
+                                        onLongClick = onNavigateToSlapTest
+                                    )
+                                } else Modifier
+                            ),
                         textAlign = TextAlign.Center
                     )
                 },
