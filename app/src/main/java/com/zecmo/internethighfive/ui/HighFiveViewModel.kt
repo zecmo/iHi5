@@ -377,10 +377,10 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
 
     // ── Tap mechanics ──────────────────────────────────────────────────────────
 
-    fun initiateHighFive() {
-        if (_highFiveState.value != HighFiveState.Idle) return
-        val currentUser = _currentUser.value ?: return
-        val session = _session.value ?: return
+    fun initiateHighFive(): Boolean {
+        if (_highFiveState.value != HighFiveState.Idle) return false
+        val currentUser = _currentUser.value ?: return false
+        val session = _session.value ?: return false
 
         viewModelScope.launch {
             _highFiveState.value = HighFiveState.Waiting
@@ -404,6 +404,7 @@ class HighFiveViewModel(application: Application) : AndroidViewModel(application
                 _highFiveState.value = HighFiveState.Error(e.message ?: "Failed to tap")
             }
         }
+        return true
     }
 
     private suspend fun scoreSession(session: HighFiveSession) {

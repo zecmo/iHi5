@@ -1,6 +1,5 @@
 package com.zecmo.internethighfive.notifications
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -27,28 +26,15 @@ private val Context.dataStore by preferencesDataStore(name = "user_preferences")
 class FirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val TAG = "FCMService"
-        const val CHANNEL_ID = "high_five_channel"
-        private const val CHANNEL_NAME = "High Fives"
         private const val NOTIFICATION_ID = 1
         private val USER_ID_KEY = stringPreferencesKey("user_id")
-
-        fun createChannelStatic(context: Context) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Notifications for high five events"
-                    enableVibration(true)
-                }
-                (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                    .createNotificationChannel(channel)
-            }
-        }
     }
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "FCM Service created")
         checkPlayServices()
-        createNotificationChannel()
+        com.zecmo.internethighfive.notification.NotificationHelper.createNotificationChannel(this)
     }
 
     private fun checkPlayServices() {
@@ -127,27 +113,6 @@ class FirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Notifications for high five events"
-                    enableVibration(true)
-                }
-                
-                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.createNotificationChannel(channel)
-                Log.d(TAG, "Notification channel created successfully")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error creating notification channel", e)
-            }
-        }
-    }
-
     private fun showNotification(title: String, message: String, senderId: String = "") {
         try {
             Log.d(TAG, "Showing notification - Title: $title, Message: $message, senderId: $senderId")
@@ -167,7 +132,7 @@ class FirebaseMessagingService : FirebaseMessagingService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 
-            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            val notification = NotificationCompat.Builder(this, com.zecmo.internethighfive.notification.NotificationHelper.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
                 .setContentText(message)
